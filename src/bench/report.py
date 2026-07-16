@@ -50,6 +50,8 @@ def aggregate(
     """-> {category: {config_id: stats}}, including the ALL pseudo-category."""
     cells: dict[tuple[str, str], list[TrialResult]] = defaultdict(list)
     for r in results:
+        if r.grader_type != "tests" or r.passed is None:
+            continue
         cells[(r.category, r.config_id)].append(r)
         cells[(ALL, r.config_id)].append(r)
 

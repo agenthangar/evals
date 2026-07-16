@@ -1,11 +1,15 @@
 """Task model: a reproducible, gradeable unit of work.
 
-A task is a directory containing:
+A test-graded task is a directory containing:
 
     task.yaml       -- metadata (see schema below)
     prompt.md       -- the task description given to the agent
     tests.patch     -- held-out tests applied at grading time
     solution.patch  -- known-good fix, used by the smoke-test gate
+
+A preference task instead declares ``grader.type: preference`` plus a named
+artifact and a private rubric. Its artifact is captured for blinded manual A/B
+review and is never treated as an objective pass.
 
 task.yaml schema::
 
@@ -24,12 +28,19 @@ task.yaml schema::
       image: python:3.11-slim     # required for docker
     solution:
       patch_file: solution.patch
+
+Preference grader alternative::
+
+    grader:
+      type: preference
+      artifact: answer.md
+      rubric_file: rubric.md
 """
 
 from __future__ import annotations
 
 import dataclasses
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import yaml
 
@@ -42,6 +53,7 @@ class TaskError(Exception):
 class Task:
     id: str
     category: str
+    grader_type: str
     repo_url: str
     base_commit: str
     prompt: str
@@ -51,6 +63,8 @@ class Task:
     runner: str
     image: str | None
     solution_patch: str
+    preference_artifact: str | None
+    preference_rubric: str | None
     path: Path
 
     @classmethod
@@ -77,9 +91,15 @@ class Task:
                 f"{meta_path}: id {task_id!r} does not match directory name {task_dir.name!r}"
             )
         repo = require(meta, "repo", "")
-        tests = require(meta, "tests", "")
+        grader = meta.get("grader") or {"type": "tests"}
+        if not isinstance(grader, dict):
+            raise TaskError(f"{meta_path}: grader must be a mapping")
+        grader_type = str(grader.get("type", "tests"))
+        if grader_type not in ("tests", "preference"):
+            raise TaskError(
+                f"{meta_path}: grader.type must be 'tests' or 'preference'"
+            )
         env = meta.get("environment") or {}
-        solution = require(meta, "solution", "")
 
         runner = env.get("runner", "docker")
         if runner not in ("docker", "local"):
@@ -103,6 +123,44 @@ class Task:
                 "(scaffolded prompts must be rewritten by hand)"
             )
 
+        tests_patch = ""
+        test_command = ""
+        test_timeout = 600
+        solution_patch = ""
+        preference_artifact = None
+        preference_rubric = None
+        if grader_type == "tests":
+            tests = require(meta, "tests", "")
+            solution = require(meta, "solution", "")
+            tests_patch = read_file(
+                require(tests, "patch_file", "tests."), "tests patch"
+            )
+            test_command = str(require(tests, "command", "tests."))
+            test_timeout = int(tests.get("timeout_seconds", 600))
+            solution_patch = read_file(
+                require(solution, "patch_file", "solution."), "solution patch"
+            )
+        else:
+            preference_artifact = str(require(grader, "artifact", "grader."))
+            normalized = preference_artifact.replace("\\", "/")
+            artifact_path = PurePosixPath(normalized)
+            if (
+                artifact_path.is_absolute()
+                or artifact_path in (PurePosixPath("."), PurePosixPath(""))
+                or ".." in artifact_path.parts
+            ):
+                raise TaskError(
+                    f"{meta_path}: grader.artifact must be a safe relative path"
+                )
+            preference_artifact = artifact_path.as_posix()
+            preference_rubric = read_file(
+                require(grader, "rubric_file", "grader."), "preference rubric"
+            )
+            if "TODO:" in preference_rubric:
+                raise TaskError(
+                    f"{task_dir}: preference rubric still contains a TODO: marker"
+                )
+
         repo_url = str(require(repo, "url", "repo."))
         local_repo = (task_dir / repo_url).expanduser()
         if not Path(repo_url).expanduser().is_absolute() and local_repo.exists():
@@ -111,17 +169,18 @@ class Task:
         return cls(
             id=task_id,
             category=str(require(meta, "category", "")),
+            grader_type=grader_type,
             repo_url=repo_url,
             base_commit=str(require(repo, "base_commit", "repo.")),
             prompt=prompt,
-            tests_patch=read_file(require(tests, "patch_file", "tests."), "tests patch"),
-            test_command=str(require(tests, "command", "tests.")),
-            test_timeout=int(tests.get("timeout_seconds", 600)),
+            tests_patch=tests_patch,
+            test_command=test_command,
+            test_timeout=test_timeout,
             runner=runner,
             image=image,
-            solution_patch=read_file(
-                require(solution, "patch_file", "solution."), "solution patch"
-            ),
+            solution_patch=solution_patch,
+            preference_artifact=preference_artifact,
+            preference_rubric=preference_rubric,
             path=task_dir,
         )
 

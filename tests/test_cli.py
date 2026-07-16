@@ -8,6 +8,7 @@ import yaml
 from bench import __version__
 from bench.cli import main
 from tests.test_pipeline_e2e import GOOD_PATCH, write_config
+from tests.test_preference import answer_patch, preference_config
 
 
 def test_cli_lifecycle(task_dir, tmp_path, capsys):
@@ -139,3 +140,59 @@ def test_cli_run_blocks_on_smoke_failure(task_dir, tmp_path, capsys):
     )
     assert rc == 1
     assert "refusing to run" in capsys.readouterr().err
+
+
+def test_cli_preference_lifecycle(preference_task_dir, tmp_path, capsys):
+    first = tmp_path / "first.patch"
+    first.write_text(answer_patch("First answer."))
+    second = tmp_path / "second.patch"
+    second.write_text(answer_patch("Second answer."))
+    configs = preference_config(tmp_path / "preference.yaml", first, second)
+    runs = tmp_path / "runs"
+    base = [
+        "--tasks",
+        str(preference_task_dir.parent),
+        "--configs",
+        str(configs),
+        "--runs",
+        str(runs),
+    ]
+
+    assert main([*base, "validate"]) == 0
+    assert "grader=preference" in capsys.readouterr().out
+    assert main([*base, "smoke"]) == 0
+    capsys.readouterr()
+    assert main([*base, "run", "--snapshot", "pref", "--trials", "1"]) == 0
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                *base,
+                "preference",
+                "prepare",
+                "--snapshot",
+                "pref",
+                "--config",
+                "model-one",
+                "--config",
+                "model-two",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    judgment = (
+        runs
+        / "pref"
+        / "preference-review"
+        / "write-brief"
+        / "trial-1"
+        / "judgment.yaml"
+    )
+    judgment.write_text("winner: tie\nrationale: Equivalent.\n")
+    assert main([*base, "preference", "report", "--snapshot", "pref"]) == 0
+    output = capsys.readouterr().out
+    assert "Blinded pairwise preference" in output
+    assert (runs / "pref" / "preference-report.md").exists()
+    assert (runs / "pref" / "preference-results.yaml").exists()

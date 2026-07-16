@@ -25,6 +25,7 @@ from pathlib import Path
 from bench import __version__
 from bench import config as config_mod
 from bench import harness as harness_mod
+from bench import preference as preference_mod
 from bench import report as report_mod
 from bench import runner as runner_mod
 from bench import smoke as smoke_mod
@@ -86,7 +87,10 @@ def cmd_validate(args) -> int:
         print(f"INVALID: {e}", file=sys.stderr)
         return 1
     for t in tasks:
-        print(f"ok  {t.id}  (category={t.category}, runner={t.runner})")
+        print(
+            f"ok  {t.id}  (category={t.category}, grader={t.grader_type}, "
+            f"runner={t.runner})"
+        )
     print(f"{len(tasks)} task(s) valid")
     return 0
 
@@ -136,7 +140,53 @@ def cmd_run(args) -> int:
         task_ids=None,
         agent_timeout=args.agent_timeout,
     )
-    print(f"\nresults in {snapshot_dir}; next: bench report --snapshot {args.snapshot}")
+    if all(task.grader_type == "preference" for task in tasks):
+        next_step = f"bench preference prepare --snapshot {args.snapshot} --config ... --config ..."
+    elif any(task.grader_type == "preference" for task in tasks):
+        next_step = (
+            f"bench report --snapshot {args.snapshot}, then prepare preference review"
+        )
+    else:
+        next_step = f"bench report --snapshot {args.snapshot}"
+    print(f"\nresults in {snapshot_dir}; next: {next_step}")
+    return 0
+
+
+def cmd_preference_prepare(args) -> int:
+    tasks = _load_tasks(args.tasks)
+    bench_config = config_mod.load(Path(args.configs))
+    _select_configs(bench_config, args.config)
+    snapshot_dir = Path(args.runs) / args.snapshot
+    results = runner_mod.load_results(snapshot_dir)
+    if not results:
+        print(f"no results found under {snapshot_dir}", file=sys.stderr)
+        return 1
+    count = preference_mod.prepare_review(
+        tasks, results, snapshot_dir, args.config
+    )
+    review_dir = snapshot_dir / "preference-review"
+    print(f"prepared {count} blinded pair(s) in {review_dir}")
+    print("complete each judgment.yaml, then run preference report")
+    return 0
+
+
+def cmd_preference_report(args) -> int:
+    snapshot_dir = Path(args.runs) / args.snapshot
+    results = runner_mod.load_results(snapshot_dir)
+    if not results:
+        print(f"no results found under {snapshot_dir}", file=sys.stderr)
+        return 1
+    data = preference_mod.build_report(snapshot_dir, results, args.snapshot)
+    markdown = preference_mod.render_markdown(data)
+    (snapshot_dir / "preference-report.md").write_text(markdown)
+    (snapshot_dir / "preference-results.yaml").write_text(
+        preference_mod.render_yaml(data)
+    )
+    print(markdown)
+    print(
+        f"\nwrote {snapshot_dir / 'preference-report.md'} and "
+        f"{snapshot_dir / 'preference-results.yaml'}"
+    )
     return 0
 
 
@@ -302,6 +352,21 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report", help="aggregate a snapshot into report.md + routing.yaml")
     p.add_argument("--snapshot", required=True)
 
+    p = sub.add_parser(
+        "preference", help="prepare and report blinded pairwise preference reviews"
+    )
+    preference_sub = p.add_subparsers(dest="preference_command", required=True)
+    q = preference_sub.add_parser("prepare", help="create blinded A/B review packets")
+    q.add_argument("--snapshot", required=True)
+    q.add_argument(
+        "--config",
+        action="append",
+        required=True,
+        help="one of exactly two configs to compare (repeat twice)",
+    )
+    q = preference_sub.add_parser("report", help="aggregate completed judgments")
+    q.add_argument("--snapshot", required=True)
+
     p = sub.add_parser("mine", help="mine tasks and task distribution from your history")
     mine_sub = p.add_subparsers(dest="mine_command", required=True)
     q = mine_sub.add_parser("commits", help="list candidate commits in a repo")
@@ -346,6 +411,12 @@ def main(argv: list[str] | None = None) -> int:
             "transcripts": cmd_mine_transcripts,
         }
         handler = handlers[args.mine_command]
+    elif args.command == "preference":
+        handlers = {
+            "prepare": cmd_preference_prepare,
+            "report": cmd_preference_report,
+        }
+        handler = handlers[args.preference_command]
     else:
         handler = handlers[args.command]
 
@@ -355,6 +426,7 @@ def main(argv: list[str] | None = None) -> int:
         config_mod.ConfigError,
         git_history.MineError,
         harness_mod.HarnessError,
+        preference_mod.PreferenceError,
         runner_mod.RunError,
         task_mod.TaskError,
         workspace_mod.GitError,

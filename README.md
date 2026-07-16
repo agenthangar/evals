@@ -38,6 +38,9 @@ solutions, model outputs, and reports stay in your own private task workspace.
 - **Tasks come from git history, not transcripts.** Transcripts are only a
   survey of your task-category mix; commits with tests give reproducible
   state and automated grading.
+- **Correctness and taste stay separate.** Test-graded tasks produce pass
+  rates and routing guidance. Preference tasks produce artifacts for blinded
+  manual A/B review; preference wins are never counted as test passes.
 
 ## Install
 
@@ -145,6 +148,21 @@ makes the benchmark trustworthy:
 Aim for 25–30 tasks whose category mix matches step 1. See
 [tasks/README.md](tasks/README.md) for the format and authoring guidance.
 
+For subjective writing, product judgment, or presentation tasks, use a
+preference grader instead of held-out tests:
+
+```yaml
+grader:
+  type: preference
+  artifact: answer.md
+  rubric_file: rubric.md
+environment:
+  runner: local
+```
+
+The prompt must tell the agent to write the named artifact. The rubric stays
+private from contenders and appears only in the blinded review packet.
+
 ### 3. Choose the configurations to compare
 
 Create your private product configuration from the concrete example:
@@ -207,6 +225,19 @@ routing:
     why: no challenger qualified; defaulting to incumbent
 ```
 
+For a preference-only snapshot, prepare a blinded comparison between exactly
+two configs, review A/B without opening the hidden key, and then report it:
+
+```sh
+bench preference prepare --snapshot 2026-07-writing \
+  --config codex-luna --config claude-code-haiku
+# Fill in each preference-review/*/trial-*/judgment.yaml
+bench preference report --snapshot 2026-07-writing
+```
+
+This writes `preference-report.md` and `preference-results.yaml`. It does not
+modify `routing.yaml` or the objective pass-rate report.
+
 ## Keeping it honest
 
 - **Capture as you go.** When you finish a real task that has tests, spend
@@ -225,7 +256,7 @@ routing:
 configs/products.example.yaml  concrete product/model example (tracked)
 configs/products.yaml          private snapshot configuration (gitignored)
 tasks/<id>/             task.yaml, prompt.md, tests.patch, solution.patch
-runs/<snapshot>/        per-trial results, report.md, routing.yaml (gitignored)
+runs/<snapshot>/        trial results and objective/preference reports (gitignored)
 src/bench/              the pipeline (mine → validate → smoke → run → report)
 tests/                  unit + end-to-end tests (no product CLIs required)
 ```

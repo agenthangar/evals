@@ -66,6 +66,28 @@ out but wasn't in the room:
 Run it after authoring a task and before every snapshot. A task that fails
 the gate is broken; fix it or move it out of `tasks/`.
 
+## Preference tasks
+
+Use preference grading when the output is subjective and cannot honestly be
+reduced to a held-out test. Replace `tests` and `solution` with:
+
+```yaml
+grader:
+  type: preference
+  artifact: answer.md
+  rubric_file: rubric.md
+environment:
+  runner: local
+```
+
+The prompt tells the agent to create `answer.md`; `rubric.md` is not shown to
+the contender. The smoke gate verifies that the base commit does not already
+contain the artifact. After a run, `bench preference prepare` creates blinded
+A/B packets and `bench preference report` aggregates manual judgments.
+
+Preference results measure taste among produced artifacts. They are reported
+separately and never count as correctness passes.
+
 ## Choosing tasks
 
 - Prefer commits that fixed something real, with tests written at the time.
