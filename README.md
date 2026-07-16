@@ -103,6 +103,10 @@ something is missing instead of starting an incomplete benchmark.
 ```sh
 bench mine transcripts ~/.claude/projects --source claude --mode interactive
 bench mine transcripts ~/.codex/sessions --source codex --mode interactive
+
+# Optional: export the cleaned conversations for local, manual review
+bench mine transcripts ~/.codex/sessions --source codex --mode interactive \
+  --output codex-candidates.jsonl
 ```
 
 Prints your session distribution by category (bugfix / feature / refactor /
@@ -112,6 +116,12 @@ sidechains and injected context, and reports session sources and modes. Use
 `--mode automation` to inspect headless jobs such as scheduled newsletters,
 `--mode benchmark` to inspect agent runs launched by this benchmark, or omit
 the filters to include everything. Transcript contents stay local.
+
+`--output` writes one source-neutral JSON record per cleaned session, including
+the conversation and enough local metadata to find the original transcript.
+The export may contain private prompts, responses, and paths: keep it in a
+private workspace and review it manually. It is a candidate list, not a set of
+reproducible benchmark tasks.
 
 ### 2. Build tasks from Git history
 
@@ -222,9 +232,10 @@ tests/                  unit + end-to-end tests (no product CLIs required)
 
 ## Security and privacy
 
-Real task packs can contain proprietary source, held-out tests, and known-good
-solutions. Keep them outside this repository and review [SECURITY.md](SECURITY.md)
-before processing transcripts or running third-party agent CLIs.
+Real task packs and transcript exports can contain proprietary source, held-out
+tests, known-good solutions, prompts, responses, and local paths. Keep them
+outside this repository and review [SECURITY.md](SECURITY.md) before processing
+transcripts or running third-party agent CLIs.
 
 ## License
 

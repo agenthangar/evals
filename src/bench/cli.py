@@ -244,15 +244,26 @@ def cmd_mine_scaffold(args) -> int:
 
 
 def cmd_mine_transcripts(args) -> int:
-    result = transcripts.survey(
+    session_items = transcripts.iter_sessions(
         Path(args.dir),
         source=None if args.source == "all" else args.source,
         mode=None if args.mode == "all" else args.mode,
     )
+    sessions = list(session_items) if args.output else session_items
+    result = transcripts.summarize_sessions(sessions)
     if result.sessions == 0:
         print(f"no parseable sessions found under {args.dir}", file=sys.stderr)
         return 1
     print(result.render())
+    if args.output:
+        output = Path(args.output).expanduser()
+        count = transcripts.write_sessions_jsonl(sessions, output)
+        noun = "session" if count == 1 else "sessions"
+        print(f"\nWrote {count} cleaned {noun} to {output}")
+        print(
+            "Warning: the export contains private transcript content; keep it local.",
+            file=sys.stderr,
+        )
     return 0
 
 
@@ -314,6 +325,10 @@ def main(argv: list[str] | None = None) -> int:
         choices=("all", *transcripts.MODES),
         default="all",
         help="include only this session mode (default: all)",
+    )
+    q.add_argument(
+        "--output",
+        help="write cleaned sessions as private JSONL for local review",
     )
 
     args = parser.parse_args(argv)

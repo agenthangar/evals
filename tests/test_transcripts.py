@@ -365,11 +365,21 @@ def test_claude_sdk_session_is_automation(tmp_path):
     assert transcripts.parse_session(p).mode == "automation"
 
 
-def test_claude_skips_local_command_output_before_real_request(tmp_path):
+def test_claude_skips_local_command_input_and_output_before_real_request(tmp_path):
     p = tmp_path / "claude.jsonl"
     write_records(
         p,
         [
+            {
+                "type": "user",
+                "sessionId": "claude-cli",
+                "cwd": "/code/project",
+                "entrypoint": "cli",
+                "message": {
+                    "role": "user",
+                    "content": "<bash-input>gh auth status</bash-input>",
+                },
+            },
             {
                 "type": "user",
                 "sessionId": "claude-cli",
@@ -514,10 +524,11 @@ def test_cli_mines_codex_sessions_with_filters(tmp_path, capsys):
         )
         == 0
     )
-    output = capsys.readouterr().out
-    assert "Surveyed 1 session" in output
-    assert "codex" in output
-    assert "interactive" in output
+    captured = capsys.readouterr()
+    assert "Surveyed 1 session" in captured.out
+    assert "codex" in captured.out
+    assert "interactive" in captured.out
+    assert captured.err == ""
 
 
 def test_cli_reports_when_filters_exclude_every_session(tmp_path, capsys):
@@ -538,4 +549,136 @@ def test_cli_reports_when_filters_exclude_every_session(tmp_path, capsys):
         )
         == 1
     )
+    assert "no parseable sessions" in capsys.readouterr().err
+
+
+def test_session_record_contains_cleaned_conversation_and_metadata(tmp_path):
+    p = tmp_path / "codex.jsonl"
+    write_records(
+        p,
+        [
+            codex_meta(session_id="export-me"),
+            codex_message("user", "<environment_context>hidden</environment_context>"),
+            codex_message("user", "Add café search"),
+            codex_message("assistant", "Implemented it."),
+        ],
+        malformed_line=True,
+    )
+
+    record = transcripts.session_record(transcripts.parse_session(p))
+
+    assert record == {
+        "schema_version": 1,
+        "source": "codex",
+        "session_id": "export-me",
+        "started_at": "2026-07-15T12:00:00Z",
+        "cwd": "/code/project",
+        "mode": "interactive",
+        "category": "feature",
+        "first_user_message": "Add café search",
+        "messages": [
+            {"role": "user", "text": "Add café search", "timestamp": None},
+            {"role": "assistant", "text": "Implemented it.", "timestamp": None},
+        ],
+        "source_path": str(p),
+        "malformed_lines": 1,
+    }
+
+
+def test_iter_sessions_filters_unusable_sessions_and_orders_paths(tmp_path):
+    write_records(
+        tmp_path / "z-codex.jsonl",
+        [codex_meta(session_id="z"), codex_message("user", "fix z")],
+    )
+    write_records(
+        tmp_path / "a-codex.jsonl",
+        [codex_meta(session_id="a"), codex_message("user", "fix a")],
+    )
+    write_records(tmp_path / "empty.jsonl", [codex_meta(session_id="empty")])
+    write_session(tmp_path / "claude.jsonl", "add a dashboard")
+
+    sessions = list(
+        transcripts.iter_sessions(tmp_path, source="codex", mode="interactive")
+    )
+
+    assert [session.session_id for session in sessions] == ["a", "z"]
+
+
+def test_write_sessions_jsonl_is_utf8_and_has_one_record_per_line(tmp_path):
+    p = tmp_path / "codex.jsonl"
+    write_records(
+        p,
+        [codex_meta(), codex_message("user", "Improve café search ☕️")],
+    )
+    output = tmp_path / "nested" / "candidates.jsonl"
+
+    count = transcripts.write_sessions_jsonl(
+        transcripts.iter_sessions(tmp_path, source="codex"), output
+    )
+
+    assert count == 1
+    assert output.read_text().endswith("\n")
+    assert "café search ☕️" in output.read_text()
+    assert [json.loads(line)["session_id"] for line in output.read_text().splitlines()] == [
+        "s1"
+    ]
+
+
+def test_cli_exports_filtered_sessions_and_retains_summary(tmp_path, capsys):
+    write_records(
+        tmp_path / "codex.jsonl",
+        [codex_meta(), codex_message("user", "fix the crash")],
+    )
+    write_session(tmp_path / "claude.jsonl", "add a dashboard")
+    output = tmp_path / "exports" / "codex-candidates.jsonl"
+
+    assert (
+        main(
+            [
+                "mine",
+                "transcripts",
+                str(tmp_path),
+                "--source",
+                "codex",
+                "--mode",
+                "interactive",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    assert "Surveyed 1 session" in captured.out
+    assert f"Wrote 1 cleaned session to {output}" in captured.out
+    assert "contains private transcript content" in captured.err
+    assert [json.loads(line)["source"] for line in output.read_text().splitlines()] == [
+        "codex"
+    ]
+
+
+def test_cli_does_not_write_export_when_filters_match_nothing(tmp_path, capsys):
+    write_records(
+        tmp_path / "codex.jsonl",
+        [codex_meta(), codex_message("user", "fix the crash")],
+    )
+    output = tmp_path / "should-not-exist.jsonl"
+
+    assert (
+        main(
+            [
+                "mine",
+                "transcripts",
+                str(tmp_path),
+                "--source",
+                "claude",
+                "--output",
+                str(output),
+            ]
+        )
+        == 1
+    )
+
+    assert not output.exists()
     assert "no parseable sessions" in capsys.readouterr().err
