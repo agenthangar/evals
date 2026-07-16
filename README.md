@@ -101,11 +101,17 @@ something is missing instead of starting an incomplete benchmark.
 ### 1. Understand your task mix (optional)
 
 ```sh
-bench mine transcripts ~/.claude/projects
+bench mine transcripts ~/.claude/projects --source claude --mode interactive
+bench mine transcripts ~/.codex/sessions --source codex --mode interactive
 ```
 
 Prints your session distribution by category (bugfix / feature / refactor /
-...) so the task suite you build matches the work you actually delegate.
+...) so the task suite you build matches the work you actually delegate. The
+parser understands current Claude Code and Codex JSONL formats, ignores
+sidechains and injected context, and reports session sources and modes. Use
+`--mode automation` to inspect headless jobs such as scheduled newsletters,
+`--mode benchmark` to inspect agent runs launched by this benchmark, or omit
+the filters to include everything. Transcript contents stay local.
 
 ### 2. Build tasks from Git history
 
