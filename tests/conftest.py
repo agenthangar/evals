@@ -110,3 +110,35 @@ solution:
 """
     )
     return d
+
+
+@pytest.fixture
+def preference_task_dir(fixture_repo, tmp_path) -> Path:
+    """A valid preference task that asks agents to write a review artifact."""
+    repo = fixture_repo["repo"]
+    base = fixture_repo["base"]
+    d = tmp_path / "preference-tasks" / "write-brief"
+    d.mkdir(parents=True)
+    (d / "prompt.md").write_text(
+        "Inspect this repository and write a concise colleague brief to answer.md.\n"
+    )
+    (d / "rubric.md").write_text(
+        "Prefer the valid answer that is more concise, grounded, and human.\n"
+    )
+    (d / "task.yaml").write_text(
+        f"""\
+id: write-brief
+category: writing
+repo:
+  url: {repo}
+  base_commit: {base}
+prompt_file: prompt.md
+grader:
+  type: preference
+  artifact: answer.md
+  rubric_file: rubric.md
+environment:
+  runner: local
+"""
+    )
+    return d

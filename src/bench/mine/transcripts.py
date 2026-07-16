@@ -19,6 +19,7 @@ import json
 import re
 from collections import Counter
 from pathlib import Path
+from typing import Iterable, Iterator
 
 CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     "bugfix": ("fix", "bug", "broken", "error", "crash", "fail", "regression", "issue"),
@@ -52,6 +53,7 @@ _INJECTED_PREFIXES = (
     "<command-args>",
     "<bash-stdout>",
     "<bash-stderr>",
+    "<bash-input>",
     "<tool_result>",
 )
 _BENCHMARK_CWD = re.compile(r"(^|/)bench-run-[^/]+(/|$)")
@@ -118,6 +120,24 @@ class TranscriptSession:
             if entrypoint.startswith("sdk"):
                 return "automation"
         return "unknown"
+
+
+def session_record(session: TranscriptSession) -> dict:
+    """Return a stable, source-neutral record for local candidate review."""
+    first_user_message = session.first_user_message
+    return {
+        "schema_version": 1,
+        "source": session.source,
+        "session_id": session.session_id,
+        "started_at": session.started_at,
+        "cwd": session.cwd,
+        "mode": session.mode,
+        "category": classify(first_user_message or ""),
+        "first_user_message": first_user_message,
+        "messages": [dataclasses.asdict(message) for message in session.messages],
+        "source_path": str(session.path),
+        "malformed_lines": session.malformed_lines,
+    }
 
 
 def _extract_text(content, allowed_types: tuple[str, ...]) -> str:
@@ -331,26 +351,36 @@ class Survey:
         return "\n".join(lines)
 
 
-def survey(
+def iter_sessions(
     transcripts_dir: Path,
-    max_examples: int = 1,
     source: str | None = None,
     mode: str | None = None,
-) -> Survey:
+) -> Iterator[TranscriptSession]:
+    """Yield usable sessions in stable path order after source/mode filtering."""
     transcripts_dir = Path(transcripts_dir).expanduser()
+    for jsonl_path in sorted(transcripts_dir.rglob("*.jsonl")):
+        session = parse_session(jsonl_path)
+        if not session.first_user_message:
+            continue
+        if source is not None and session.source != source:
+            continue
+        if mode is not None and session.mode != mode:
+            continue
+        yield session
+
+
+def summarize_sessions(
+    session_items: Iterable[TranscriptSession], max_examples: int = 1
+) -> Survey:
+    """Summarize an already-selected set of usable transcript sessions."""
     categorized: Counter = Counter()
     examples: dict[str, list[str]] = {}
     sources: Counter = Counter()
     modes: Counter = Counter()
     sessions = 0
-    for jsonl_path in sorted(transcripts_dir.rglob("*.jsonl")):
-        session = parse_session(jsonl_path)
+    for session in session_items:
         text = session.first_user_message
         if not text:
-            continue
-        if source is not None and session.source != source:
-            continue
-        if mode is not None and session.mode != mode:
             continue
         sessions += 1
         sources[session.source] += 1
@@ -367,3 +397,28 @@ def survey(
         sources=sources,
         modes=modes,
     )
+
+
+def survey(
+    transcripts_dir: Path,
+    max_examples: int = 1,
+    source: str | None = None,
+    mode: str | None = None,
+) -> Survey:
+    """Survey usable sessions under a transcript directory."""
+    return summarize_sessions(
+        iter_sessions(transcripts_dir, source=source, mode=mode),
+        max_examples=max_examples,
+    )
+
+
+def write_sessions_jsonl(
+    session_items: Iterable[TranscriptSession], output_path: Path
+) -> int:
+    """Write cleaned sessions for local review and return the number exported."""
+    sessions = list(session_items)
+    output_path = Path(output_path).expanduser()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = [json.dumps(session_record(session), ensure_ascii=False) for session in sessions]
+    output_path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+    return len(sessions)

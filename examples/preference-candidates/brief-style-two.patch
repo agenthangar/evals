@@ -1,0 +1,14 @@
+diff --git a/answer.md b/answer.md
+new file mode 100644
+--- /dev/null
++++ b/answer.md
+@@ -0,0 +1,9 @@
++The fixture is suitable for a first evaluation walkthrough because its deliberate
++defect makes the framework's success and failure paths easy to inspect.
++
++- Repository state: The README identifies an intentionally buggy calculator,
++  while `calc.py` implements `add(a, b)` with subtraction instead of addition.
++- What it demonstrates: A reviewer can understand the starting state quickly and
++  verify that the benchmark distinguishes a corrective change from a no-op.
++- Tradeoff and validation: Its simplicity is approachable but not representative;
++  confirm the known-good/empty smoke behavior, then graduate to private real tasks.

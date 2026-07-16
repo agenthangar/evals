@@ -2,9 +2,9 @@
 
 AgentHangar Evals helps you decide which coding agent and model to use for your
 own work. It runs each option against repeatable tasks from your repositories,
-grades the results with held-out tests, and compares reliability with cost per
-solved task. The result is a simple routing policy: use this configuration for
-this kind of work.
+grades objective work with held-out tests, and captures subjective work for
+blinded human preference review. The outputs keep correctness, cost-based
+routing, and taste judgments separate.
 
 ## Why this exists
 
@@ -17,12 +17,14 @@ solutions, model outputs, and reports stay in your own private task workspace.
 
 ## How it works
 
-1. Turn tested fixes from your Git history into repeatable tasks.
+1. Mine your real task mix, then author reproducible objective and preference
+   tasks around pinned repository states.
 2. Run the same tasks through each coding-agent configuration you are
    considering.
-3. Grade every attempt with held-out tests that the agent cannot rewrite.
-4. Generate a report showing pass rate, cost per solve, and which configuration
-   to use for each kind of task.
+3. Grade objective attempts with held-out tests that the agent cannot rewrite;
+   capture subjective artifacts for blinded manual A/B review.
+4. Generate separate objective and preference reports so taste never becomes
+   a correctness pass or an automatic routing decision.
 
 ## What this is (and is not)
 
@@ -35,9 +37,14 @@ solutions, model outputs, and reports stay in your own private task workspace.
   10-point equivalence margin).
 - **Autonomous one-shot runs.** This measures which setup can solve your tasks
   unattended, not which one feels best during an interactive session.
-- **Tasks come from git history, not transcripts.** Transcripts are only a
-  survey of your task-category mix; commits with tests give reproducible
-  state and automated grading.
+- **Transcripts suggest tasks; they do not become tasks automatically.** Tested
+  fixes from Git history are the strongest source for objective tasks.
+  Transcript exports can help you manually author broader preference tasks,
+  but each resulting preference task still needs a pinned repository state,
+  prompt, and rubric.
+- **Correctness and taste stay separate.** Test-graded tasks produce pass
+  rates and routing guidance. Preference tasks produce artifacts for blinded
+  manual A/B review; preference wins are never counted as test passes.
 
 ## Install
 
@@ -96,6 +103,42 @@ task packs must remain private so agents cannot inspect held-out grading data.
 needed, and the agent CLIs required for a run. It exits with a clear error when
 something is missing instead of starting an incomplete benchmark.
 
+### Try the blinded preference example
+
+The public preference example uses the same calculator fixture and two
+deterministic scripted briefs. Both candidates are factually credible: one is
+more compact and skeptical, while the other is more explanatory and
+demo-oriented. There is deliberately no intended winner.
+
+```sh
+bench --tasks examples/preference-tasks \
+  --configs examples/configs/preference-script.yaml doctor
+bench --tasks examples/preference-tasks validate
+bench --tasks examples/preference-tasks smoke
+bench --tasks examples/preference-tasks \
+  --configs examples/configs/preference-script.yaml \
+  --runs /tmp/agenthangar-evals-preference-demo \
+  run --snapshot demo --trials 1
+bench --tasks examples/preference-tasks \
+  --configs examples/configs/preference-script.yaml \
+  --runs /tmp/agenthangar-evals-preference-demo \
+  preference prepare --snapshot demo \
+  --config brief-style-one --config brief-style-two
+```
+
+Read `prompt.md`, `rubric.md`, `candidate-a.md`, and `candidate-b.md` under the
+generated `preference-review/calculator-demo-brief/trial-1/` directory. Record
+`A`, `B`, `tie`, or `neither` in `judgment.yaml` without inspecting `.keys`,
+then finish with:
+
+```sh
+bench --runs /tmp/agenthangar-evals-preference-demo \
+  preference report --snapshot demo
+```
+
+The script harness makes this a workflow demonstration, not evidence that one
+answer or configuration is objectively better.
+
 ## Run your own benchmark
 
 ### 1. Understand your task mix (optional)
@@ -103,6 +146,10 @@ something is missing instead of starting an incomplete benchmark.
 ```sh
 bench mine transcripts ~/.claude/projects --source claude --mode interactive
 bench mine transcripts ~/.codex/sessions --source codex --mode interactive
+
+# Optional: export the cleaned conversations for local, manual review
+bench mine transcripts ~/.codex/sessions --source codex --mode interactive \
+  --output codex-candidates.jsonl
 ```
 
 Prints your session distribution by category (bugfix / feature / refactor /
@@ -112,6 +159,13 @@ sidechains and injected context, and reports session sources and modes. Use
 `--mode automation` to inspect headless jobs such as scheduled newsletters,
 `--mode benchmark` to inspect agent runs launched by this benchmark, or omit
 the filters to include everything. Transcript contents stay local.
+
+`--output` writes one source-neutral JSON record per cleaned session, including
+the conversation and enough local metadata to find the original transcript.
+The export may contain private prompts, responses, and paths: keep it in a
+private workspace and review it manually. Files named `*-candidates.jsonl` are
+gitignored by this repository as an additional safeguard. It is a candidate
+list, not a set of reproducible benchmark tasks.
 
 ### 2. Build tasks from Git history
 
@@ -134,6 +188,23 @@ makes the benchmark trustworthy:
 
 Aim for 25–30 tasks whose category mix matches step 1. See
 [tasks/README.md](tasks/README.md) for the format and authoring guidance.
+
+For subjective writing, product judgment, or presentation tasks, use a
+preference grader instead of held-out tests:
+
+```yaml
+grader:
+  type: preference
+  artifact: answer.md
+  rubric_file: rubric.md
+environment:
+  runner: local
+```
+
+The prompt must tell the agent to write the named artifact. The rubric stays
+private from contenders and appears only in the blinded review packet. The
+artifact must be a safe relative path to a nonempty regular file, and it must
+not already exist at the task's base commit.
 
 ### 3. Choose the configurations to compare
 
@@ -178,6 +249,11 @@ bench run --snapshot 2026-07-sonnet5 --trials 3
 Interrupted snapshots resume: completed trials are cached on disk under
 `runs/<snapshot>/<task>/<config>/trial-N/`.
 
+For objective routing, the snapshot must contain results for the `incumbent`
+declared in the product config. When running a narrow config subset, use a
+snapshot-specific config file whose incumbent is included in that subset;
+otherwise challengers can be reported but no routing comparison is possible.
+
 ### 5. Read the recommendation
 
 ```sh
@@ -197,6 +273,29 @@ routing:
     why: no challenger qualified; defaulting to incumbent
 ```
 
+For preference tasks, prepare a blinded comparison between exactly two configs,
+review A/B without opening the hidden key, and then report it:
+
+```sh
+bench preference prepare --snapshot 2026-07-writing \
+  --config codex-luna --config claude-code-haiku
+# Fill in each preference-review/*/trial-*/judgment.yaml
+bench preference report --snapshot 2026-07-writing
+```
+
+This writes `preference-report.md` and `preference-results.yaml`; its cost totals
+cover only the pairs included in that review. It does not modify `routing.yaml`
+or the objective pass-rate report. A mixed snapshot uses both commands:
+`bench report` for test-graded tasks and `bench preference report` for
+preference tasks. `bench report` rejects a preference-only snapshot instead of
+writing an empty routing policy.
+
+Completed judgments are bound to hashes of the prompt, rubric, and both
+candidates. If `prepare` reports that a completed packet changed, set its
+`judgment.yaml` back to `winner: null` with an empty rationale, rerun `prepare`,
+and review the refreshed packet again. Do not edit candidate files directly;
+`preference report` rejects packets that changed after preparation.
+
 ## Keeping it honest
 
 - **Capture as you go.** When you finish a real task that has tests, spend
@@ -214,17 +313,19 @@ routing:
 ```
 configs/products.example.yaml  concrete product/model example (tracked)
 configs/products.yaml          private snapshot configuration (gitignored)
-tasks/<id>/             task.yaml, prompt.md, tests.patch, solution.patch
-runs/<snapshot>/        per-trial results, report.md, routing.yaml (gitignored)
+tasks/<id>/             objective: task.yaml, prompt.md, tests + solution patches
+tasks/<id>/             preference: task.yaml, prompt.md, rubric.md
+runs/<snapshot>/        trials, blinded packets, keys, judgments, reports (gitignored)
 src/bench/              the pipeline (mine → validate → smoke → run → report)
 tests/                  unit + end-to-end tests (no product CLIs required)
 ```
 
 ## Security and privacy
 
-Real task packs can contain proprietary source, held-out tests, and known-good
-solutions. Keep them outside this repository and review [SECURITY.md](SECURITY.md)
-before processing transcripts or running third-party agent CLIs.
+Real task packs and transcript exports can contain proprietary source, held-out
+tests, known-good solutions, prompts, responses, and local paths. Keep them
+outside this repository and review [SECURITY.md](SECURITY.md) before processing
+transcripts or running third-party agent CLIs.
 
 ## License
 

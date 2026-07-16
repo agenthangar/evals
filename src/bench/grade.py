@@ -25,6 +25,43 @@ class GradeResult:
     output: str
 
 
+def capture_preference_artifact(task: Task, workdir: Path) -> GradeResult:
+    """Validate and read the artifact produced for blinded preference review."""
+    if task.grader_type != "preference" or not task.preference_artifact:
+        raise ValueError("capture_preference_artifact requires a preference task")
+    workdir = Path(workdir).resolve()
+    artifact = workdir / task.preference_artifact
+    resolved = artifact.resolve()
+    if artifact.is_symlink() or not resolved.is_relative_to(workdir):
+        return GradeResult(
+            passed=False,
+            reason="artifact_unsafe",
+            exit_code=None,
+            output=f"preference artifact {task.preference_artifact!r} escapes the workspace",
+        )
+    if not artifact.is_file():
+        return GradeResult(
+            passed=False,
+            reason="artifact_missing",
+            exit_code=None,
+            output=f"expected preference artifact {task.preference_artifact!r}",
+        )
+    content = artifact.read_text(encoding="utf-8", errors="replace")
+    if not content.strip():
+        return GradeResult(
+            passed=False,
+            reason="artifact_empty",
+            exit_code=None,
+            output=f"preference artifact {task.preference_artifact!r} was empty",
+        )
+    return GradeResult(
+        passed=True,
+        reason="preference_ready",
+        exit_code=0,
+        output=content,
+    )
+
+
 def run_tests(task: Task, workdir: Path) -> GradeResult:
     """Run the task's test command in the configured environment."""
     if task.runner == "docker":

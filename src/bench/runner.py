@@ -38,15 +38,27 @@ class TrialResult:
     category: str
     config_id: str
     trial: int
-    passed: bool
+    passed: bool | None
     grade_reason: str
     cost_usd: float | None
     agent_duration_seconds: float
     agent_timed_out: bool
     diff_bytes: int
+    # Keep new preference fields after the original constructor fields so
+    # pre-preference positional construction remains backward compatible.
+    grader_type: str = "tests"
+    artifact_file: str | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TrialResult":
+        """Load current results and objective results from older snapshots."""
+        normalized = dict(data)
+        normalized.setdefault("grader_type", "tests")
+        normalized.setdefault("artifact_file", None)
+        return cls(**normalized)
 
 
 def run_trial(
@@ -63,7 +75,10 @@ def run_trial(
         workdir = workspace.checkout(task.repo_url, task.base_commit, Path(tmp) / "repo")
         agent = adapter.run(config, workdir, task.prompt, timeout=agent_timeout)
         diff = workspace.capture_diff(workdir, task.base_commit)
-        graded = grade.grade_workdir(task, workdir)
+        if task.grader_type == "preference":
+            graded = grade.capture_preference_artifact(task, workdir)
+        else:
+            graded = grade.grade_workdir(task, workdir)
 
     (out_dir / "diff.patch").write_text(diff)
     (out_dir / "agent.log").write_text(
@@ -72,14 +87,24 @@ def run_trial(
         f"duration={agent.duration_seconds:.1f}s\n"
         f"--- stdout ---\n{agent.stdout}\n--- stderr ---\n{agent.stderr}\n"
     )
-    (out_dir / "tests.log").write_text(graded.output)
+    artifact_file = None
+    if task.grader_type == "preference":
+        (out_dir / "grade.log").write_text(
+            f"{graded.reason}: {task.preference_artifact}\n"
+        )
+        if graded.passed:
+            artifact_file = "artifact.md"
+            (out_dir / artifact_file).write_text(graded.output)
+    else:
+        (out_dir / "tests.log").write_text(graded.output)
 
     result = TrialResult(
         task_id=task.id,
         category=task.category,
         config_id=config.id,
         trial=trial,
-        passed=graded.passed,
+        grader_type=task.grader_type,
+        passed=graded.passed if task.grader_type == "tests" else None,
         grade_reason=graded.reason,
         cost_usd=config.cost.cost_usd(
             agent.cost_usd,
@@ -90,6 +115,7 @@ def run_trial(
         agent_duration_seconds=round(agent.duration_seconds, 2),
         agent_timed_out=agent.timed_out,
         diff_bytes=len(diff.encode()),
+        artifact_file=artifact_file,
     )
     (out_dir / "result.json").write_text(json.dumps(result.to_dict(), indent=2) + "\n")
     return result
@@ -152,12 +178,19 @@ def run_matrix(
                 existing = out_dir / "result.json"
                 if existing.exists():
                     data = json.loads(existing.read_text())
-                    results.append(TrialResult(**data))
+                    results.append(TrialResult.from_dict(data))
                     log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: cached")
                     continue
                 result = run_trial(task, config, trial, out_dir, agent_timeout)
                 results.append(result)
-                status = "PASS" if result.passed else f"FAIL ({result.grade_reason})"
+                if result.grader_type == "preference":
+                    status = (
+                        "READY (preference review)"
+                        if result.grade_reason == "preference_ready"
+                        else f"FAIL ({result.grade_reason})"
+                    )
+                else:
+                    status = "PASS" if result.passed else f"FAIL ({result.grade_reason})"
                 cost = f"${result.cost_usd:.2f}" if result.cost_usd is not None else "cost n/a"
                 log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: {status}, {cost}")
     log(f"snapshot complete: {done} trials in {time.monotonic() - started:.0f}s")
@@ -168,5 +201,5 @@ def load_results(snapshot_dir: Path) -> list[TrialResult]:
     """Load all persisted trial results for a snapshot."""
     results = []
     for path in sorted(Path(snapshot_dir).glob("*/*/trial-*/result.json")):
-        results.append(TrialResult(**json.loads(path.read_text())))
+        results.append(TrialResult.from_dict(json.loads(path.read_text())))
     return results

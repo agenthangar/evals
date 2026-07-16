@@ -14,8 +14,10 @@ otherwise masquerade as model failures (or free passes) in the results.
 from __future__ import annotations
 
 import dataclasses
+import tempfile
+from pathlib import Path
 
-from bench import grade
+from bench import grade, workspace
 from bench.task import Task
 
 
@@ -29,6 +31,32 @@ class SmokeResult:
 
 
 def smoke_task(task: Task) -> SmokeResult:
+    if task.grader_type == "preference":
+        with tempfile.TemporaryDirectory(prefix="bench-smoke-preference-") as tmp:
+            workdir = workspace.checkout(
+                task.repo_url, task.base_commit, Path(tmp) / "repo"
+            )
+            baseline = grade.capture_preference_artifact(task, workdir)
+        ok = baseline.reason == "artifact_missing"
+        if ok:
+            detail = (
+                "preference artifact is absent at baseline; manual pairwise review "
+                "is required after the run"
+            )
+        elif baseline.reason == "preference_ready":
+            detail = "preference artifact already exists at the base commit"
+        else:
+            detail = (
+                f"preference artifact baseline is invalid ({baseline.reason}): "
+                f"{baseline.output}"
+            )
+        return SmokeResult(
+            task_id=task.id,
+            ok=ok,
+            solution_passed=True,
+            empty_failed=ok,
+            detail=detail,
+        )
     solution = grade.grade_diff(task, task.solution_patch)
     empty = grade.grade_diff(task, "")
     ok = solution.passed and not empty.passed

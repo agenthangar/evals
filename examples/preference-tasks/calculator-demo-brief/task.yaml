@@ -1,0 +1,12 @@
+id: calculator-demo-brief
+category: writing
+repo:
+  url: ../../fixtures/calculator.bundle
+  base_commit: 253f93e1978716d251c2f1534cfc4eec85078c8b
+prompt_file: prompt.md
+grader:
+  type: preference
+  artifact: answer.md
+  rubric_file: rubric.md
+environment:
+  runner: local
