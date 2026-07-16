@@ -103,6 +103,42 @@ task packs must remain private so agents cannot inspect held-out grading data.
 needed, and the agent CLIs required for a run. It exits with a clear error when
 something is missing instead of starting an incomplete benchmark.
 
+### Try the blinded preference example
+
+The public preference example uses the same calculator fixture and two
+deterministic scripted briefs. Both candidates are factually credible: one is
+more compact and skeptical, while the other is more explanatory and
+demo-oriented. There is deliberately no intended winner.
+
+```sh
+bench --tasks examples/preference-tasks \
+  --configs examples/configs/preference-script.yaml doctor
+bench --tasks examples/preference-tasks validate
+bench --tasks examples/preference-tasks smoke
+bench --tasks examples/preference-tasks \
+  --configs examples/configs/preference-script.yaml \
+  --runs /tmp/agenthangar-evals-preference-demo \
+  run --snapshot demo --trials 1
+bench --tasks examples/preference-tasks \
+  --configs examples/configs/preference-script.yaml \
+  --runs /tmp/agenthangar-evals-preference-demo \
+  preference prepare --snapshot demo \
+  --config brief-style-one --config brief-style-two
+```
+
+Read `prompt.md`, `rubric.md`, `candidate-a.md`, and `candidate-b.md` under the
+generated `preference-review/calculator-demo-brief/trial-1/` directory. Record
+`A`, `B`, `tie`, or `neither` in `judgment.yaml` without inspecting `.keys`,
+then finish with:
+
+```sh
+bench --runs /tmp/agenthangar-evals-preference-demo \
+  preference report --snapshot demo
+```
+
+The script harness makes this a workflow demonstration, not evidence that one
+answer or configuration is objectively better.
+
 ## Run your own benchmark
 
 ### 1. Understand your task mix (optional)

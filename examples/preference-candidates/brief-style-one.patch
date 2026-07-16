@@ -1,0 +1,13 @@
+diff --git a/answer.md b/answer.md
+new file mode 100644
+--- /dev/null
++++ b/answer.md
+@@ -0,0 +1,8 @@
++This calculator is a clean pipeline smoke test, not evidence of real agent quality.
++
++- Current evidence: The README calls it intentionally buggy, and `calc.py` contains
++  one function: `add(a, b)` returns `a - b`, so `add(2, 3)` produces `-1`.
++- Demo value: The isolated, deterministic defect makes checkout, candidate
++  patching, held-out grading, and reporting straightforward to verify.
++- Limitation and next step: Use it to validate benchmark plumbing, then use
++  private representative tasks before making any model or routing decision.

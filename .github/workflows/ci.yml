@@ -43,3 +43,26 @@ jobs:
           bench --configs examples/configs/script.yaml
           --runs /tmp/agenthangar-evals-demo
           report --snapshot demo
+      - run: >-
+          bench --tasks examples/preference-tasks
+          --configs examples/configs/preference-script.yaml
+          doctor
+      - run: bench --tasks examples/preference-tasks validate
+      - run: bench --tasks examples/preference-tasks smoke
+      - run: >-
+          bench --tasks examples/preference-tasks
+          --configs examples/configs/preference-script.yaml
+          --runs /tmp/agenthangar-evals-preference-demo
+          run --snapshot demo --trials 1
+      - run: >-
+          bench --tasks examples/preference-tasks
+          --configs examples/configs/preference-script.yaml
+          --runs /tmp/agenthangar-evals-preference-demo
+          preference prepare --snapshot demo
+          --config brief-style-one --config brief-style-two
+      - run: >-
+          cp examples/preference-judgment.ci.yaml
+          /tmp/agenthangar-evals-preference-demo/demo/preference-review/calculator-demo-brief/trial-1/judgment.yaml
+      - run: >-
+          bench --runs /tmp/agenthangar-evals-preference-demo
+          preference report --snapshot demo

@@ -110,6 +110,11 @@ review changed material, reset `winner` to `null`, clear the rationale, rerun
 Preference results measure taste among produced artifacts. They are reported
 separately and never count as correctness passes.
 
+See the balanced, no-cost example under
+[`examples/preference-tasks`](../examples/preference-tasks), with its neutral
+script configurations in
+[`examples/configs/preference-script.yaml`](../examples/configs/preference-script.yaml).
+
 ## Choosing tasks
 
 - Prefer commits that fixed something real, with tests written at the time.
