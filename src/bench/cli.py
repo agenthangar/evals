@@ -2,7 +2,9 @@
 
 Typical lifecycle::
 
-    bench mine transcripts ~/.claude/projects      # learn your task mix
+    bench mine transcripts ~/.claude/projects --source claude --mode interactive
+    bench mine transcripts ~/.codex/sessions --source codex --mode interactive
+                                                    # learn your task mix
     bench mine commits ~/code/myrepo               # find candidate commits
     bench mine scaffold ~/code/myrepo <sha> tasks/fix-foo
     # ... hand-edit prompt.md, task.yaml (test command, image) ...
@@ -242,7 +244,11 @@ def cmd_mine_scaffold(args) -> int:
 
 
 def cmd_mine_transcripts(args) -> int:
-    result = transcripts.survey(Path(args.dir))
+    result = transcripts.survey(
+        Path(args.dir),
+        source=None if args.source == "all" else args.source,
+        mode=None if args.mode == "all" else args.mode,
+    )
     if result.sessions == 0:
         print(f"no parseable sessions found under {args.dir}", file=sys.stderr)
         return 1
@@ -297,6 +303,18 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--category", default="bugfix")
     q = mine_sub.add_parser("transcripts", help="survey session transcripts by category")
     q.add_argument("dir", help="e.g. ~/.claude/projects")
+    q.add_argument(
+        "--source",
+        choices=("all", *transcripts.SOURCES),
+        default="all",
+        help="include only this transcript source (default: all)",
+    )
+    q.add_argument(
+        "--mode",
+        choices=("all", *transcripts.MODES),
+        default="all",
+        help="include only this session mode (default: all)",
+    )
 
     args = parser.parse_args(argv)
     handlers = {
