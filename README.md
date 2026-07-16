@@ -2,9 +2,9 @@
 
 AgentHangar Evals helps you decide which coding agent and model to use for your
 own work. It runs each option against repeatable tasks from your repositories,
-grades the results with held-out tests, and compares reliability with cost per
-solved task. The result is a simple routing policy: use this configuration for
-this kind of work.
+grades objective work with held-out tests, and captures subjective work for
+blinded human preference review. The outputs keep correctness, cost-based
+routing, and taste judgments separate.
 
 ## Why this exists
 
@@ -17,12 +17,14 @@ solutions, model outputs, and reports stay in your own private task workspace.
 
 ## How it works
 
-1. Turn tested fixes from your Git history into repeatable tasks.
+1. Mine your real task mix, then author reproducible objective and preference
+   tasks around pinned repository states.
 2. Run the same tasks through each coding-agent configuration you are
    considering.
-3. Grade every attempt with held-out tests that the agent cannot rewrite.
-4. Generate a report showing pass rate, cost per solve, and which configuration
-   to use for each kind of task.
+3. Grade objective attempts with held-out tests that the agent cannot rewrite;
+   capture subjective artifacts for blinded manual A/B review.
+4. Generate separate objective and preference reports so taste never becomes
+   a correctness pass or an automatic routing decision.
 
 ## What this is (and is not)
 
@@ -35,9 +37,11 @@ solutions, model outputs, and reports stay in your own private task workspace.
   10-point equivalence margin).
 - **Autonomous one-shot runs.** This measures which setup can solve your tasks
   unattended, not which one feels best during an interactive session.
-- **Tasks come from git history, not transcripts.** Transcripts are only a
-  survey of your task-category mix; commits with tests give reproducible
-  state and automated grading.
+- **Transcripts suggest tasks; they do not become tasks automatically.** Tested
+  fixes from Git history are the strongest source for objective tasks.
+  Transcript exports can help you manually author broader preference tasks,
+  but each resulting preference task still needs a pinned repository state,
+  prompt, and rubric.
 - **Correctness and taste stay separate.** Test-graded tasks produce pass
   rates and routing guidance. Preference tasks produce artifacts for blinded
   manual A/B review; preference wins are never counted as test passes.
@@ -162,7 +166,9 @@ environment:
 ```
 
 The prompt must tell the agent to write the named artifact. The rubric stays
-private from contenders and appears only in the blinded review packet.
+private from contenders and appears only in the blinded review packet. The
+artifact must be a safe relative path to a nonempty regular file, and it must
+not already exist at the task's base commit.
 
 ### 3. Choose the configurations to compare
 
@@ -207,6 +213,11 @@ bench run --snapshot 2026-07-sonnet5 --trials 3
 Interrupted snapshots resume: completed trials are cached on disk under
 `runs/<snapshot>/<task>/<config>/trial-N/`.
 
+For objective routing, the snapshot must contain results for the `incumbent`
+declared in the product config. When running a narrow config subset, use a
+snapshot-specific config file whose incumbent is included in that subset;
+otherwise challengers can be reported but no routing comparison is possible.
+
 ### 5. Read the recommendation
 
 ```sh
@@ -226,8 +237,8 @@ routing:
     why: no challenger qualified; defaulting to incumbent
 ```
 
-For a preference-only snapshot, prepare a blinded comparison between exactly
-two configs, review A/B without opening the hidden key, and then report it:
+For preference tasks, prepare a blinded comparison between exactly two configs,
+review A/B without opening the hidden key, and then report it:
 
 ```sh
 bench preference prepare --snapshot 2026-07-writing \
@@ -236,10 +247,18 @@ bench preference prepare --snapshot 2026-07-writing \
 bench preference report --snapshot 2026-07-writing
 ```
 
-This writes `preference-report.md` and `preference-results.yaml`. It does not
-modify `routing.yaml` or the objective pass-rate report. Completed judgments
-are bound to hashes of the prompt, rubric, and both candidates; changed review
-material must be reviewed again rather than inheriting an old verdict.
+This writes `preference-report.md` and `preference-results.yaml`; its cost totals
+cover only the pairs included in that review. It does not modify `routing.yaml`
+or the objective pass-rate report. A mixed snapshot uses both commands:
+`bench report` for test-graded tasks and `bench preference report` for
+preference tasks. `bench report` rejects a preference-only snapshot instead of
+writing an empty routing policy.
+
+Completed judgments are bound to hashes of the prompt, rubric, and both
+candidates. If `prepare` reports that a completed packet changed, set its
+`judgment.yaml` back to `winner: null` with an empty rationale, rerun `prepare`,
+and review the refreshed packet again. Do not edit candidate files directly;
+`preference report` rejects packets that changed after preparation.
 
 ## Keeping it honest
 
@@ -258,8 +277,9 @@ material must be reviewed again rather than inheriting an old verdict.
 ```
 configs/products.example.yaml  concrete product/model example (tracked)
 configs/products.yaml          private snapshot configuration (gitignored)
-tasks/<id>/             task.yaml, prompt.md, tests.patch, solution.patch
-runs/<snapshot>/        trial results and objective/preference reports (gitignored)
+tasks/<id>/             objective: task.yaml, prompt.md, tests + solution patches
+tasks/<id>/             preference: task.yaml, prompt.md, rubric.md
+runs/<snapshot>/        trials, blinded packets, keys, judgments, reports (gitignored)
 src/bench/              the pipeline (mine → validate → smoke → run → report)
 tests/                  unit + end-to-end tests (no product CLIs required)
 ```

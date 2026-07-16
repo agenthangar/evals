@@ -13,10 +13,17 @@ repository maintainers until they coordinate a fix and disclosure with you.
 
 ## Protecting benchmark data
 
-Task packs contain held-out tests and known-good solutions. They may also
-contain proprietary source patches and private repository locations. Store real
-task packs, product configuration, transcripts, raw outputs, and reports in a
+Task packs contain held-out tests, known-good solutions, prompts, rubrics, and
+private repository locations. Preference artifacts and judgments may reveal
+personal evaluation criteria. Store real task packs, product configuration,
+transcripts, raw outputs, blinded review packets, judgments, and reports in a
 separate private workspace. Never commit them to this repository, even briefly.
+
+Preference review directories contain a hidden `.keys` directory that maps
+anonymous A/B labels back to product configurations. Treat it as private and do
+not inspect or share it before review is complete. The hashes stored there
+detect accidental packet changes; they are an integrity check, not encryption
+or an access-control boundary.
 
 Agent harnesses execute third-party CLIs against working copies of code. The
 Claude Code, Codex, and Cursor harnesses intentionally use unrestricted,
@@ -28,5 +35,9 @@ files available on your computer. Docker grading uses networking disabled, but
 it isolates only the grading command—not the agent that produces the candidate
 change.
 
-Transcript surveying reads local session files. Inspect the selected directory
-before running it and do not publish the resulting source material.
+Transcript surveying reads local session files. An `--output` export contains
+cleaned prompts and responses plus metadata such as local paths and source file
+locations. Inspect the selected directory before running it and do not publish
+the resulting material. This repository ignores files named
+`*-candidates.jsonl`, but gitignore is only a safeguard: exports with other
+names, exports written elsewhere, and copies can still be committed or shared.
