@@ -123,8 +123,9 @@ the filters to include everything. Transcript contents stay local.
 `--output` writes one source-neutral JSON record per cleaned session, including
 the conversation and enough local metadata to find the original transcript.
 The export may contain private prompts, responses, and paths: keep it in a
-private workspace and review it manually. It is a candidate list, not a set of
-reproducible benchmark tasks.
+private workspace and review it manually. Files named `*-candidates.jsonl` are
+gitignored by this repository as an additional safeguard. It is a candidate
+list, not a set of reproducible benchmark tasks.
 
 ### 2. Build tasks from Git history
 
@@ -236,7 +237,9 @@ bench preference report --snapshot 2026-07-writing
 ```
 
 This writes `preference-report.md` and `preference-results.yaml`. It does not
-modify `routing.yaml` or the objective pass-rate report.
+modify `routing.yaml` or the objective pass-rate report. Completed judgments
+are bound to hashes of the prompt, rubric, and both candidates; changed review
+material must be reviewed again rather than inheriting an old verdict.
 
 ## Keeping it honest
 

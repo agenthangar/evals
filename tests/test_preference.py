@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -110,6 +111,27 @@ def test_preference_smoke_checks_that_base_has_no_answer(preference_task_dir):
     assert "manual pairwise review" in result.detail
 
 
+@pytest.mark.parametrize("reason", ["artifact_empty", "artifact_unsafe"])
+def test_preference_smoke_rejects_invalid_existing_baseline_artifact(
+    preference_task_dir, monkeypatch, reason
+):
+    monkeypatch.setattr(
+        grade,
+        "capture_preference_artifact",
+        lambda *_: grade.GradeResult(
+            passed=False,
+            reason=reason,
+            exit_code=None,
+            output="invalid baseline artifact",
+        ),
+    )
+
+    result = smoke.smoke_task(Task.load(preference_task_dir))
+
+    assert not result.ok
+    assert reason in result.detail
+
+
 def test_runner_captures_preference_artifacts_without_binary_grading(
     preference_task_dir, tmp_path
 ):
@@ -145,6 +167,25 @@ def test_trial_result_loads_objective_results_from_older_snapshots():
     }
 
     loaded = runner.TrialResult.from_dict(old_result)
+
+    assert loaded.grader_type == "tests"
+    assert loaded.artifact_file is None
+    assert loaded.passed is True
+
+
+def test_trial_result_preserves_legacy_positional_constructor():
+    loaded = runner.TrialResult(
+        "legacy-task",
+        "bugfix",
+        "legacy-config",
+        1,
+        True,
+        "tests_passed",
+        0.1,
+        2.5,
+        False,
+        42,
+    )
 
     assert loaded.grader_type == "tests"
     assert loaded.artifact_file is None
@@ -201,6 +242,111 @@ def test_preference_review_is_blinded_and_report_resolves_the_winner(
     # Preparing again refreshes candidates but never destroys completed review.
     preference.prepare_review([task], results, snapshot_dir, ["model-two", "model-one"])
     assert yaml.safe_load(judgment_path.read_text())["winner"] == winner
+
+    key = json.loads(
+        (
+            snapshot_dir
+            / "preference-review"
+            / ".keys"
+            / "write-brief-trial-1.json"
+        ).read_text()
+    )
+    assert set(key["content_sha256"]) == {
+        "prompt",
+        "rubric",
+        "candidate-a",
+        "candidate-b",
+    }
+
+
+def test_preference_review_rejects_changed_candidates_after_judgment(
+    preference_task_dir, tmp_path
+):
+    task, _, snapshot_dir, results = run_preference_fixture(
+        preference_task_dir, tmp_path
+    )
+    preference.prepare_review(
+        [task], results, snapshot_dir, ["model-one", "model-two"]
+    )
+    judgment = (
+        snapshot_dir
+        / "preference-review"
+        / "write-brief"
+        / "trial-1"
+        / "judgment.yaml"
+    )
+    judgment.write_text("winner: A\nrationale: Preferred the original candidate.\n")
+    (
+        snapshot_dir
+        / "write-brief"
+        / "model-one"
+        / "trial-1"
+        / "artifact.md"
+    ).write_text("Changed after the judgment.\n")
+    key = json.loads(
+        (
+            snapshot_dir
+            / "preference-review"
+            / ".keys"
+            / "write-brief-trial-1.json"
+        ).read_text()
+    )
+    changed_label = next(
+        label for label, config_id in key["labels"].items() if config_id == "model-one"
+    )
+    (
+        snapshot_dir
+        / "preference-review"
+        / "write-brief"
+        / "trial-1"
+        / f"candidate-{changed_label.lower()}.md"
+    ).write_text("Changed after the judgment.\n")
+
+    with pytest.raises(preference.PreferenceError, match="completed judgment.*changed"):
+        preference.prepare_review(
+            [task], results, snapshot_dir, ["model-one", "model-two"]
+        )
+
+
+def test_preference_report_rejects_packet_edits_after_preparation(
+    preference_task_dir, tmp_path
+):
+    task, _, snapshot_dir, results = run_preference_fixture(
+        preference_task_dir, tmp_path
+    )
+    preference.prepare_review(
+        [task], results, snapshot_dir, ["model-one", "model-two"]
+    )
+    candidate = (
+        snapshot_dir
+        / "preference-review"
+        / "write-brief"
+        / "trial-1"
+        / "candidate-a.md"
+    )
+    candidate.write_text("Edited after the blinded packet was prepared.\n")
+
+    with pytest.raises(preference.PreferenceError, match="changed after preparation"):
+        preference.build_report(snapshot_dir, results, "preference-snap")
+
+
+def test_preference_report_costs_only_include_reviewed_pairs(
+    preference_task_dir, tmp_path
+):
+    task, _, snapshot_dir, results = run_preference_fixture(
+        preference_task_dir, tmp_path
+    )
+    preference.prepare_review(
+        [task], results, snapshot_dir, ["model-one", "model-two"]
+    )
+    extra = dataclasses.replace(results[0], trial=99, cost_usd=99.0)
+
+    data = preference.build_report(
+        snapshot_dir, [*results, extra], "preference-snap"
+    )
+
+    assert data["summary"]["model-one"]["total_cost_usd"] == 0.2
+    assert data["summary"]["model-two"]["total_cost_usd"] == 0.1
 
 
 def test_preference_review_requires_exactly_two_configs(preference_task_dir, tmp_path):

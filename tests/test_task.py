@@ -14,6 +14,27 @@ def test_load_valid_task(task_dir):
     assert "calc.py" in t.solution_patch
 
 
+def test_task_preserves_legacy_positional_constructor(tmp_path):
+    task = Task(
+        "legacy-task",
+        "bugfix",
+        "repo",
+        "base",
+        "prompt",
+        "tests patch",
+        "python -m pytest",
+        60,
+        "local",
+        None,
+        "solution patch",
+        tmp_path,
+    )
+
+    assert task.grader_type == "tests"
+    assert task.preference_artifact is None
+    assert task.preference_rubric is None
+
+
 def test_load_all(task_dir):
     tasks = load_all(task_dir.parent)
     assert [t.id for t in tasks] == ["fix-add"]

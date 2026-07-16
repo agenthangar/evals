@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 from bench.cli import main
 from bench.mine import transcripts
@@ -682,3 +683,14 @@ def test_cli_does_not_write_export_when_filters_match_nothing(tmp_path, capsys):
 
     assert not output.exists()
     assert "no parseable sessions" in capsys.readouterr().err
+
+
+def test_private_transcript_candidate_exports_are_gitignored():
+    repo_root = Path(__file__).parents[1]
+    patterns = {
+        line.strip()
+        for line in (repo_root / ".gitignore").read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    }
+
+    assert "*-candidates.jsonl" in patterns

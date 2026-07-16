@@ -197,6 +197,16 @@ def cmd_report(args) -> int:
     if not results:
         print(f"no results found under {snapshot_dir}", file=sys.stderr)
         return 1
+    if not any(
+        result.grader_type == "tests" and result.passed is not None
+        for result in results
+    ):
+        print(
+            "snapshot has no objective test-graded results; use "
+            "bench preference report for preference-only snapshots",
+            file=sys.stderr,
+        )
+        return 1
     aggregated = report_mod.aggregate(results, bench_config)
     policy = report_mod.routing_policy(aggregated, bench_config)
     markdown = report_mod.render_markdown(aggregated, policy, bench_config, args.snapshot)

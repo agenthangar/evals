@@ -22,8 +22,45 @@ class PreferenceError(Exception):
     """Raised when preference review inputs or judgments are invalid."""
 
 
+_PACKET_FILES = {
+    "prompt": "prompt.md",
+    "rubric": "rubric.md",
+    "candidate-a": "candidate-a.md",
+    "candidate-b": "candidate-b.md",
+}
+
+
 def _pair_key(task_id: str, trial: int) -> str:
     return f"{task_id}-trial-{trial}.json"
+
+
+def _content_sha256(content: str) -> str:
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+
+def _packet_hashes(packet: dict[str, str]) -> dict[str, str]:
+    return {name: _content_sha256(packet[name]) for name in _PACKET_FILES}
+
+
+def _packet_hashes_from_dir(review_dir: Path) -> dict[str, str] | None:
+    """Hash a visible review packet, or return None when it is incomplete."""
+    packet = {}
+    for name, filename in _PACKET_FILES.items():
+        path = review_dir / filename
+        if not path.is_file():
+            return None
+        packet[name] = path.read_text(encoding="utf-8", errors="replace")
+    return _packet_hashes(packet)
+
+
+def _completed_judgment(judgment_path: Path) -> bool:
+    if not judgment_path.exists():
+        return False
+    try:
+        raw = yaml.safe_load(judgment_path.read_text()) or {}
+    except yaml.YAMLError as exc:
+        raise PreferenceError(f"{judgment_path}: invalid YAML: {exc}") from exc
+    return isinstance(raw, dict) and raw.get("winner") is not None
 
 
 def prepare_review(
@@ -83,8 +120,10 @@ def prepare_review(
         labels = {"A": ordered[0], "B": ordered[1]}
         review_dir = review_root / task_id / f"trial-{trial}"
         review_dir.mkdir(parents=True, exist_ok=True)
-        (review_dir / "prompt.md").write_text(task.prompt)
-        (review_dir / "rubric.md").write_text(task.preference_rubric or "")
+        packet = {
+            "prompt": task.prompt,
+            "rubric": task.preference_rubric or "",
+        }
         for label, filename in (("A", "candidate-a.md"), ("B", "candidate-b.md")):
             result = per_config[labels[label]]
             artifact = (
@@ -96,15 +135,49 @@ def prepare_review(
             )
             if not artifact.is_file():
                 raise PreferenceError(f"missing captured artifact: {artifact}")
-            (review_dir / filename).write_text(
-                artifact.read_text(encoding="utf-8", errors="replace")
+            packet[f"candidate-{label.lower()}"] = artifact.read_text(
+                encoding="utf-8", errors="replace"
             )
         judgment = review_dir / "judgment.yaml"
+        key_path = keys_root / _pair_key(task_id, trial)
+        content_sha256 = _packet_hashes(packet)
+        if _completed_judgment(judgment):
+            existing_sha256 = _packet_hashes_from_dir(review_dir)
+            previous_key = {}
+            if key_path.is_file():
+                try:
+                    previous_key = json.loads(key_path.read_text())
+                except (json.JSONDecodeError, OSError) as exc:
+                    raise PreferenceError(f"invalid blinded review key: {key_path}") from exc
+            previous_sha256 = previous_key.get("content_sha256")
+            packet_changed = (
+                existing_sha256 != content_sha256
+                if previous_sha256 is None
+                else (
+                    previous_key.get("labels") != labels
+                    or existing_sha256 != previous_sha256
+                    or content_sha256 != previous_sha256
+                )
+            )
+            if packet_changed:
+                raise PreferenceError(
+                    f"{judgment}: completed judgment cannot be reused because "
+                    "the review packet changed"
+                )
+
+        for name, filename in _PACKET_FILES.items():
+            (review_dir / filename).write_text(packet[name])
         if not judgment.exists():
             judgment.write_text(yaml.safe_dump({"winner": None, "rationale": ""}))
-        (keys_root / _pair_key(task_id, trial)).write_text(
+        key_path.write_text(
             json.dumps(
-                {"task_id": task_id, "trial": trial, "labels": labels}, indent=2
+                {
+                    "task_id": task_id,
+                    "trial": trial,
+                    "labels": labels,
+                    "content_sha256": content_sha256,
+                },
+                indent=2,
             )
             + "\n"
         )
@@ -127,6 +200,7 @@ def build_report(
 
     summary: dict[str, dict] = {}
     judgments: list[dict] = []
+    reviewed_cells: set[tuple[str, str, int]] = set()
     pending = 0
     for judgment_path in sorted(review_root.glob("*/trial-*/judgment.yaml")):
         task_id = judgment_path.parent.parent.name
@@ -141,7 +215,15 @@ def build_report(
         labels = key.get("labels") or {}
         if set(labels) != {"A", "B"}:
             raise PreferenceError(f"invalid blinded review key: {key_path}")
+        expected_sha256 = key.get("content_sha256")
+        if expected_sha256 is not None:
+            actual_sha256 = _packet_hashes_from_dir(judgment_path.parent)
+            if actual_sha256 != expected_sha256:
+                raise PreferenceError(
+                    f"{judgment_path.parent}: review packet changed after preparation"
+                )
         for config_id in labels.values():
+            reviewed_cells.add((task_id, config_id, trial))
             summary.setdefault(
                 config_id,
                 {
@@ -202,6 +284,19 @@ def build_report(
     if not judgments:
         raise PreferenceError("no preference judgments found")
 
+    result_by_cell = {
+        (result.task_id, result.config_id, result.trial): result
+        for result in results
+        if result.grader_type == "preference"
+    }
+    missing_cells = reviewed_cells - set(result_by_cell)
+    if missing_cells:
+        task_id, config_id, trial = sorted(missing_cells)[0]
+        raise PreferenceError(
+            "missing result for reviewed preference pair: "
+            f"{task_id} / {config_id} / trial-{trial}"
+        )
+
     for config_id, stats in summary.items():
         decided = stats["wins"] + stats["losses"] + stats["ties"]
         if decided:
@@ -209,11 +304,9 @@ def build_report(
                 (stats["wins"] + 0.5 * stats["ties"]) / decided, 3
             )
         costs = [
-            result.cost_usd
-            for result in results
-            if result.grader_type == "preference"
-            and result.config_id == config_id
-            and result.cost_usd is not None
+            result_by_cell[cell].cost_usd
+            for cell in sorted(reviewed_cells)
+            if cell[1] == config_id and result_by_cell[cell].cost_usd is not None
         ]
         if costs:
             stats["total_cost_usd"] = round(sum(costs), 6)

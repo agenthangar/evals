@@ -38,14 +38,16 @@ class TrialResult:
     category: str
     config_id: str
     trial: int
-    grader_type: str
     passed: bool | None
     grade_reason: str
     cost_usd: float | None
     agent_duration_seconds: float
     agent_timed_out: bool
     diff_bytes: int
-    artifact_file: str | None
+    # Keep new preference fields after the original constructor fields so
+    # pre-preference positional construction remains backward compatible.
+    grader_type: str = "tests"
+    artifact_file: str | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)

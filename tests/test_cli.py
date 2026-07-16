@@ -164,6 +164,14 @@ def test_cli_preference_lifecycle(preference_task_dir, tmp_path, capsys):
     capsys.readouterr()
     assert main([*base, "run", "--snapshot", "pref", "--trials", "1"]) == 0
     capsys.readouterr()
+
+    assert main([*base, "report", "--snapshot", "pref"]) == 1
+    report_error = capsys.readouterr().err
+    assert "no objective test-graded results" in report_error
+    assert "bench preference report" in report_error
+    assert not (runs / "pref" / "report.md").exists()
+    assert not (runs / "pref" / "routing.yaml").exists()
+
     assert (
         main(
             [

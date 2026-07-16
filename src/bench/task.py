@@ -53,7 +53,6 @@ class TaskError(Exception):
 class Task:
     id: str
     category: str
-    grader_type: str
     repo_url: str
     base_commit: str
     prompt: str
@@ -63,9 +62,12 @@ class Task:
     runner: str
     image: str | None
     solution_patch: str
-    preference_artifact: str | None
-    preference_rubric: str | None
     path: Path
+    # Keep new grader fields after the original constructor fields so callers
+    # using the pre-preference positional API continue to create test tasks.
+    grader_type: str = "tests"
+    preference_artifact: str | None = None
+    preference_rubric: str | None = None
 
     @classmethod
     def load(cls, task_dir: Path) -> "Task":
