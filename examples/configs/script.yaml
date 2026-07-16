@@ -1,0 +1,15 @@
+incumbent: known-good
+
+configs:
+  - id: known-good
+    harness: script
+    patch_file: examples/tasks/fix-add/solution.patch
+    cost:
+      mode: flat_per_run
+      flat_usd: 0.0
+
+  - id: no-op
+    harness: script
+    cost:
+      mode: flat_per_run
+      flat_usd: 0.0

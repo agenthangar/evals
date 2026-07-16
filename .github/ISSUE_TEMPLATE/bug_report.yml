@@ -1,0 +1,19 @@
+name: Bug report
+description: Report a reproducible AgentHangar Evals problem
+title: "[Bug]: "
+body:
+  - type: textarea
+    attributes:
+      label: What happened?
+      description: Do not include private tasks, transcripts, or credentials.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: Reproduction steps
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Environment
+      description: Python version, operating system, and relevant agent CLI.

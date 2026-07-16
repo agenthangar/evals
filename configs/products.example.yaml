@@ -1,0 +1,132 @@
+# Product/model configs to benchmark. Each entry is one thing you might route
+# work to: a product (harness) plus a model.
+#
+# Cost model notes:
+#   - claude-code reports total_cost_usd in its JSON output, so
+#     mode: harness_reported works out of the box (per-token prices below are
+#     the fallback if that ever stops being reported).
+#   - codex and cursor do not report USD; set per-token prices from the
+#     provider's pricing page, or flat_usd as a rough per-run estimate.
+#   - If you run these products on subscriptions rather than API keys, the
+#     marginal per-run cost is not the API price - decide explicitly which
+#     cost basis you want and keep it consistent across configs.
+#
+# Anthropic API prices below are as of 2026-06 (per 1M tokens):
+#   claude-opus-4-8  $5 in / $25 out
+#   claude-sonnet-5  $3 in / $15 out
+#   claude-haiku-4-5 $1 in / $5 out
+# Re-check pricing before each snapshot; prices change.
+
+incumbent: claude-code-opus
+
+configs:
+  - id: claude-code-opus
+    harness: claude-code
+    model: claude-opus-4-8
+    cost:
+      mode: harness_reported
+      input_per_mtok: 5.0
+      output_per_mtok: 25.0
+
+  - id: claude-code-sonnet
+    harness: claude-code
+    model: claude-sonnet-5
+    cost:
+      mode: harness_reported
+      input_per_mtok: 3.0
+      output_per_mtok: 15.0
+
+  - id: claude-code-haiku
+    harness: claude-code
+    model: claude-haiku-4-5
+    cost:
+      mode: harness_reported
+      input_per_mtok: 1.0
+      output_per_mtok: 5.0
+
+  # Claude Fable 5 - Anthropic's most capable model (Claude 5 family, above
+  # Opus tier). $10 in / $50 out per 1M tokens as of 2026-07.
+  - id: claude-code-fable
+    harness: claude-code
+    model: claude-fable-5
+    cost:
+      mode: harness_reported
+      input_per_mtok: 10.0
+      output_per_mtok: 50.0
+
+  # Example Codex model slugs as of 2026-07:
+  #   gpt-5.6-sol    frontier agentic coding model
+  #   gpt-5.6-terra  balanced everyday model
+  #   gpt-5.6-luna   fast and affordable model
+  # OpenAI standard API prices verified 2026-07-11 (per 1M tokens, from the
+  # official pricing page): sol $5 in / $0.50 cached / $30 out;
+  # terra $2.50 / $0.25 / $15;
+  # luna $1 / $0.10 / $6. The Codex harness reads the full cached/in/out split
+  # from JSONL output and applies these rates directly.
+  - id: codex-sol
+    harness: codex
+    model: gpt-5.6-sol
+    cost:
+      mode: per_token
+      input_per_mtok: 5.0
+      cached_input_per_mtok: 0.5
+      output_per_mtok: 30.0
+
+  - id: codex-terra
+    harness: codex
+    model: gpt-5.6-terra
+    cost:
+      mode: per_token
+      input_per_mtok: 2.5
+      cached_input_per_mtok: 0.25
+      output_per_mtok: 15.0
+
+  - id: codex-luna
+    harness: codex
+    model: gpt-5.6-luna
+    cost:
+      mode: per_token
+      input_per_mtok: 1.0
+      cached_input_per_mtok: 0.1
+      output_per_mtok: 6.0
+
+  # Cursor picks its own default model unless you pass one; requires the
+  # cursor-agent CLI to be installed and logged in.
+  - id: cursor-default
+    harness: cursor
+    model: null
+    cost:
+      mode: flat_per_run
+      flat_usd: 0.50   # rough placeholder - replace with a measured estimate
+
+  # Cursor model IDs verified with cursor-agent --list-models on 2026-07-14.
+  # Official Cursor prices as of 2026-07-14 (per 1M tokens, uncached input /
+  # cached input / output): Composer 2.5 $0.50 / $0.20 / $2.50;
+  # Grok 4.5 $2 / $0.50 / $6; GLM 5.2 $1.40 / $0.26 / $4.40.
+  # These select the standard models, not their faster, higher-priced variants.
+  - id: cursor-composer-2-5
+    harness: cursor
+    model: composer-2.5
+    cost:
+      mode: per_token
+      input_per_mtok: 0.5
+      cached_input_per_mtok: 0.2
+      output_per_mtok: 2.5
+
+  - id: cursor-grok-4-5
+    harness: cursor
+    model: cursor-grok-4.5-high
+    cost:
+      mode: per_token
+      input_per_mtok: 2.0
+      cached_input_per_mtok: 0.5
+      output_per_mtok: 6.0
+
+  - id: cursor-glm-5-2
+    harness: cursor
+    model: glm-5.2-high
+    cost:
+      mode: per_token
+      input_per_mtok: 1.4
+      cached_input_per_mtok: 0.26
+      output_per_mtok: 4.4

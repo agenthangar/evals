@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.egg-info/
+.pytest_cache/
+.venv/
+runs/
+.cache/
+dist/
+build/
+
+# Local product/model choices and pricing assumptions are snapshot-specific.
+configs/products.yaml
+
+# Benchmark tasks contain private held-out tests and known-good solutions.
+# Keep the tracked authoring guide at tasks/README.md, but ignore task corpora.
+tasks/*/

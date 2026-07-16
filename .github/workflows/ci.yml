@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest
+
+  synthetic-example:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: bench --tasks examples/tasks validate
+      - run: bench --tasks examples/tasks smoke
+      - run: >-
+          bench --tasks examples/tasks
+          --configs examples/configs/script.yaml
+          --runs /tmp/agenthangar-evals-demo
+          run --snapshot demo --trials 1
+      - run: >-
+          bench --configs examples/configs/script.yaml
+          --runs /tmp/agenthangar-evals-demo
+          report --snapshot demo
