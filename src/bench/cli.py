@@ -17,11 +17,15 @@ Typical lifecycle::
 from __future__ import annotations
 
 import argparse
+import json
+import dataclasses
 import platform
+import re
 import shutil
 import sys
 from pathlib import Path
 
+from bench import quality
 from bench import __version__
 from bench import config as config_mod
 from bench import harness as harness_mod
@@ -79,6 +83,12 @@ def _positive_int(value: str) -> int:
     return parsed
 
 
+def _snapshot_name(value: str) -> str:
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", value):
+        raise argparse.ArgumentTypeError("snapshot must be a name, not a filesystem path")
+    return value
+
+
 def cmd_validate(args) -> int:
     try:
         tasks = _load_tasks(args.tasks)
@@ -91,10 +101,26 @@ def cmd_validate(args) -> int:
     return 0
 
 
+def cmd_audit(args) -> int:
+    tasks = _select_tasks(_load_tasks(args.tasks), args.task)
+    entries = [{"id": t.id, "category": t.category, "issues": quality.audit(t),
+                "criteria": len(t.criteria), "negative_controls": len(t.negative_controls),
+                "limitations": t.limitations} for t in tasks]
+    if args.json:
+        print(json.dumps(entries, indent=2))
+    else:
+        for entry in entries:
+            print(f"{'NEEDS REVIEW' if entry['issues'] else 'READY FOR SMOKE'}  {entry['id']}")
+            for issue in entry['issues']:
+                print(f"  - {issue}")
+        print("Authoring metadata is not proof: run smoke --repeat 2 and review grader assertions.")
+    return int(any(e["issues"] for e in entries))
+
+
 def cmd_smoke(args) -> int:
     tasks = _select_tasks(_load_tasks(args.tasks), args.task)
     failures = 0
-    for result in smoke_mod.smoke_all(tasks):
+    for result in smoke_mod.smoke_all(tasks, repeats=args.repeat):
         status = "ok " if result.ok else "GATE FAILED"
         print(f"{status}  {result.task_id}")
         if not result.ok:
@@ -115,9 +141,15 @@ def cmd_run(args) -> int:
     tasks = _select_tasks(_load_tasks(args.tasks), args.task)
     bench_config = config_mod.load(Path(args.configs))
     _select_configs(bench_config, args.config)
+    if args.strict:
+        issues = {t.id: quality.audit(t) for t in tasks if quality.audit(t)}
+        if issues:
+            raise task_mod.TaskError(f"task quality audit failed: {issues}")
+        if args.skip_smoke:
+            raise task_mod.TaskError("--strict cannot be combined with --skip-smoke")
     snapshot_dir = Path(args.runs) / args.snapshot
     if not args.skip_smoke:
-        bad = [r for r in smoke_mod.smoke_all(tasks) if not r.ok]
+        bad = [r for r in smoke_mod.smoke_all(tasks, repeats=2 if args.strict else 1) if not r.ok]
         if bad:
             for r in bad:
                 print(f"GATE FAILED  {r.task_id}\n    {r.detail}", file=sys.stderr)
@@ -143,13 +175,14 @@ def cmd_run(args) -> int:
 def cmd_report(args) -> int:
     bench_config = config_mod.load(Path(args.configs))
     snapshot_dir = Path(args.runs) / args.snapshot
+    runner_mod.verify_report_config(snapshot_dir, bench_config)
     results = runner_mod.load_results(snapshot_dir)
     if not results:
         print(f"no results found under {snapshot_dir}", file=sys.stderr)
         return 1
     aggregated = report_mod.aggregate(results, bench_config)
     policy = report_mod.routing_policy(aggregated, bench_config)
-    markdown = report_mod.render_markdown(aggregated, policy, bench_config, args.snapshot)
+    markdown = report_mod.render_markdown(aggregated, policy, bench_config, args.snapshot, results=results)
     (snapshot_dir / "report.md").write_text(markdown)
     (snapshot_dir / "routing.yaml").write_text(
         report_mod.render_routing_yaml(policy, args.snapshot)
@@ -215,13 +248,17 @@ def cmd_doctor(args) -> int:
 
 
 def cmd_mine_commits(args) -> int:
-    candidates = git_history.find_candidates(Path(args.repo), limit=args.limit)
+    candidates = git_history.find_candidates(Path(args.repo), limit=args.limit, since=args.since, include_untested=args.include_untested)
+    if args.json:
+        print(json.dumps([dataclasses.asdict(c) for c in candidates], indent=2))
+        return 0
     if not candidates:
         print("no candidate commits found (need commits touching both source and tests)")
         return 0
     for c in candidates:
         print(f"{c.sha[:12]}  {c.subject}")
         print(f"              source: {len(c.source_files)} file(s), tests: {len(c.test_files)} file(s)")
+        print(f"              review: {', '.join(c.review_flags)}")
     print(
         f"\n{len(candidates)} candidate(s). Scaffold one with:\n"
         f"  bench mine scaffold {args.repo} <sha> tasks/<task-id>"
@@ -274,28 +311,36 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--task", action="append", help="check only this task id (repeatable)")
 
     sub.add_parser("validate", help="check every task directory is well-formed")
+    p = sub.add_parser("audit", help="check acceptance coverage, provenance and grader controls")
+    p.add_argument("--task", action="append")
+    p.add_argument("--json", action="store_true")
 
     p = sub.add_parser("smoke", help="verify tasks detect both success and failure")
     p.add_argument("--task", action="append", help="limit to task id (repeatable)")
+    p.add_argument("--repeat", type=_positive_int, default=1)
 
     p = sub.add_parser("run", help="run the task x config x trial matrix")
-    p.add_argument("--snapshot", required=True, help="snapshot name, e.g. 2026-07-sonnet5")
+    p.add_argument("--snapshot", type=_snapshot_name, required=True, help="snapshot name, e.g. 2026-07-sonnet5")
     p.add_argument("--trials", type=_positive_int, default=3)
     p.add_argument("--config", action="append", help="limit to config id (repeatable)")
     p.add_argument("--task", action="append", help="limit to task id (repeatable)")
     p.add_argument(
         "--agent-timeout", type=_positive_int, default=runner_mod.DEFAULT_AGENT_TIMEOUT
     )
+    p.add_argument("--strict", action="store_true", help="require quality audit and two smoke repetitions")
     p.add_argument("--skip-smoke", action="store_true", help="skip the pre-run smoke gate")
 
     p = sub.add_parser("report", help="aggregate a snapshot into report.md + routing.yaml")
-    p.add_argument("--snapshot", required=True)
+    p.add_argument("--snapshot", type=_snapshot_name, required=True)
 
     p = sub.add_parser("mine", help="mine tasks and task distribution from your history")
     mine_sub = p.add_subparsers(dest="mine_command", required=True)
     q = mine_sub.add_parser("commits", help="list candidate commits in a repo")
     q.add_argument("repo")
-    q.add_argument("--limit", type=int, default=200)
+    q.add_argument("--limit", type=_positive_int, default=200)
+    q.add_argument("--include-untested", action="store_true", help="include work needing a manually authored grader")
+    q.add_argument("--since", help="only commits since this date, e.g. 2026-09-01")
+    q.add_argument("--json", action="store_true", help="machine-readable candidate inventory")
     q = mine_sub.add_parser("scaffold", help="scaffold a task directory from a commit")
     q.add_argument("repo")
     q.add_argument("commit")
@@ -319,6 +364,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     handlers = {
         "doctor": cmd_doctor,
+        "audit": cmd_audit,
         "validate": cmd_validate,
         "smoke": cmd_smoke,
         "run": cmd_run,

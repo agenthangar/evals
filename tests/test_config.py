@@ -42,18 +42,13 @@ def test_public_example_loads_concrete_product_matrix():
     path = Path(__file__).parents[1] / "configs" / "products.example.yaml"
     cfg = load(path)
 
-    assert cfg.incumbent == "claude-code-opus"
-    assert len(cfg.configs) == 11
-    assert cfg.by_id("claude-code-fable").model == "claude-fable-5"
-    assert cfg.by_id("codex-sol").model == "gpt-5.6-sol"
-    assert cfg.by_id("codex-sol").cost.cached_input_per_mtok == 0.5
-    assert cfg.by_id("cursor-default").cost.flat_usd == 0.5
-    assert cfg.by_id("cursor-composer-2-5").model == "composer-2.5"
-    assert cfg.by_id("cursor-composer-2-5").cost.output_per_mtok == 2.5
-    assert cfg.by_id("cursor-grok-4-5").model == "cursor-grok-4.5-high"
-    assert cfg.by_id("cursor-grok-4-5").cost.cached_input_per_mtok == 0.5
-    assert cfg.by_id("cursor-glm-5-2").model == "glm-5.2-high"
-    assert cfg.by_id("cursor-glm-5-2").cost.input_per_mtok == 1.4
+    assert cfg.incumbent == "codex-astra-high"
+    assert len(cfg.configs) == 5
+    assert cfg.by_id("codex-astra-high").model == "gpt-6-astra"
+    assert cfg.by_id("codex-astra-high").cost.cached_input_per_mtok == 1.0
+    assert cfg.by_id("claude-opus-5-5-high").model == "claude-opus-5-5"
+    assert cfg.by_id("claude-fable-5-1-high").model == "claude-fable-5-1"
+    assert all(c.extra_args for c in cfg.configs)
 
 
 def test_duplicate_ids_rejected(tmp_path):

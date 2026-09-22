@@ -30,3 +30,13 @@ change.
 
 Transcript surveying reads local session files. Inspect the selected directory
 before running it and do not publish the resulting source material.
+
+## Answer isolation
+
+The engine exports a fresh starting tree for the agent, with one synthetic Git
+commit and no remotes, and grades its captured diff in another checkout. This
+reduces accidental answer leakage from later commits and workspace residue. It
+does not restrict host filesystem access: use an agent sandbox with only approved
+inputs and no access to private task packs, original repositories or grader data.
+Protected paths stop ordinary test edits; they do not make local execution safe
+against hostile application code or test-runner manipulation.

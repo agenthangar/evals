@@ -23,9 +23,10 @@ class GradeResult:
     reason: str  # "tests_passed" | "tests_failed" | "patch_apply_failed" | "test_timeout"
     exit_code: int | None
     output: str
+    checks: list[dict] = dataclasses.field(default_factory=list)
 
 
-def run_tests(task: Task, workdir: Path) -> GradeResult:
+def _run_check(task: Task, workdir: Path) -> GradeResult:
     """Run the task's test command in the configured environment."""
     if task.runner == "docker":
         cmd = [
@@ -57,10 +58,23 @@ def run_tests(task: Task, workdir: Path) -> GradeResult:
     passed = proc.returncode == 0
     return GradeResult(
         passed=passed,
-        reason="tests_passed" if passed else "tests_failed",
+        reason="tests_passed" if passed else ("environment_error" if proc.returncode in (125, 126, 127) else "tests_failed"),
         exit_code=proc.returncode,
         output=output,
     )
+
+
+def run_tests(task: Task, workdir: Path) -> GradeResult:
+    checks = []
+    for check in task.grading_checks:
+        result = _run_check(dataclasses.replace(task, test_command=check.command,
+                            test_timeout=check.timeout_seconds), workdir)
+        checks.append({"id": check.id, "passed": result.passed, "reason": result.reason,
+                       "exit_code": result.exit_code, "output": result.output})
+    failed = next((c for c in checks if not c["passed"]), None)
+    return GradeResult(not failed, failed["reason"] if failed else "tests_passed",
+                       failed["exit_code"] if failed else 0,
+                       "\n".join(f"=== {c['id']} ({c['reason']}) ===\n{c['output']}" for c in checks), checks)
 
 
 def grade_diff(task: Task, candidate_diff: str, scratch_dir: Path | None = None) -> GradeResult:
@@ -78,7 +92,7 @@ def grade_diff(task: Task, candidate_diff: str, scratch_dir: Path | None = None)
 
 def grade_workdir(task: Task, workdir: Path) -> GradeResult:
     """Grade a workspace that already contains the candidate changes."""
-    test_paths = sorted(patches.affected_paths(task.tests_patch))
+    test_paths = sorted(patches.affected_paths(task.tests_patch) | set(task.protected_paths))
     workspace.restore_paths(workdir, task.base_commit, test_paths)
     try:
         workspace.apply_patch(workdir, task.tests_patch)

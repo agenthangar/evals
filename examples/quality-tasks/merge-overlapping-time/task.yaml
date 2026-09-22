@@ -1,0 +1,49 @@
+id: merge-overlapping-time
+category: data-correctness
+repo:
+  url: repo.bundle
+  base_commit: ffe2b2fbadf8b6a26c6741178c2ccad5fd9b5366
+prompt_file: prompt.md
+tests:
+  patch_file: tests.patch
+  checks:
+  - id: union
+    command: python3 -m unittest test_intervals.UnionTests
+    timeout_seconds: 30
+  - id: contract
+    command: python3 -m unittest test_intervals.ContractTests
+    timeout_seconds: 30
+  protected_paths: []
+environment:
+  runner: local
+solution:
+  patch_file: solution.patch
+evaluation:
+  criteria:
+  - id: union
+    description: Overlaps, nesting, duplicates and ordering match an independent minute-grid
+      oracle
+    check: union
+  - id: contract
+    description: Clipping, negative bounds, empty ranges and input immutability
+    check: contract
+  negative_controls:
+  - id: sum-overlaps
+    patch_file: sum-overlaps.patch
+    reason: Clips each interval but still adds overlap twice
+    fails:
+    - union
+  - id: mutate-input
+    patch_file: mutate-input.patch
+    reason: Correct totals but sorts caller-owned data
+    fails:
+    - contract
+  limitations:
+  - Public answers are visible; use this for learning and pipeline validation, not
+    model ranking.
+  - Integer-minute intervals only; this does not evaluate timezone handling or database
+    integration.
+provenance:
+  source: synthetic teaching fixture
+  why_this_task: Demonstrates semantic and property checks for common reporting work;
+    not a claim about any user workload.

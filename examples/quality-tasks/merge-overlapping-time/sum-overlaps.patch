@@ -1,0 +1,11 @@
+diff --git a/intervals.py b/intervals.py
+index 110d9de..83143d6 100644
+--- a/intervals.py
++++ b/intervals.py
+@@ -3,5 +3,5 @@ def occupied_minutes(intervals, window):
+ 
+     Inputs must not be changed. Empty/reversed intervals contribute nothing.
+     """
+-    start, end = window
++    start, end = window  # incomplete overlap fix
+     return sum(max(0, min(b, end) - max(a, start)) for a, b in intervals)

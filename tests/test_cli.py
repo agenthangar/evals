@@ -139,3 +139,17 @@ def test_cli_run_blocks_on_smoke_failure(task_dir, tmp_path, capsys):
     )
     assert rc == 1
     assert "refusing to run" in capsys.readouterr().err
+
+
+def test_audit_distinguishes_legacy_tasks(task_dir, capsys):
+    assert main(['--tasks',str(task_dir.parent),'audit','--json']) == 1
+    import json
+    output=json.loads(capsys.readouterr().out)
+    assert output[0]['id']=='fix-add' and output[0]['issues']
+
+
+def test_strict_mode_refuses_legacy_contract(task_dir,tmp_path,capsys):
+    good_patch=tmp_path/'good.patch';good_patch.write_text(GOOD_PATCH)
+    configs=write_config(tmp_path/'configs.yaml',good_patch)
+    assert main(['--tasks',str(task_dir.parent),'--configs',str(configs),'--runs',str(tmp_path/'runs'),'run','--snapshot','strict','--strict'])==1
+    assert 'quality audit failed' in capsys.readouterr().err

@@ -54,3 +54,14 @@ def test_scaffold_rejects_test_only_commit(fixture_repo, tmp_path):
     sha = git(repo, "rev-parse", "HEAD")
     with pytest.raises(git_history.MineError, match="only changes test files"):
         git_history.scaffold(repo, sha, tmp_path / "nope")
+
+
+def test_discovery_can_include_work_without_tests(fixture_repo):
+    from tests.conftest import git
+    repo = fixture_repo['repo']
+    (repo / 'calc.py').write_text('def add(a,b):\n    return sum([a,b])\n')
+    git(repo, 'add', '-A');git(repo, 'commit', '-qm', 'refactor implementation')
+    candidates = git_history.find_candidates(repo, include_untested=True)
+    assert candidates[0].test_files == []
+    assert 'needs_grader' in candidates[0].review_flags
+    assert not git_history.find_candidates(repo, since='2099-01-01')

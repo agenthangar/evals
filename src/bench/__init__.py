@@ -5,4 +5,4 @@ run product/model configs in their native harnesses -> grade with held-out
 tests -> report pass rates, cost per solve, and a routing policy.
 """
 
-__version__ = "1.0.1"
+__version__ = "1.1.0"

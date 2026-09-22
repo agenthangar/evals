@@ -34,14 +34,16 @@ class Candidate:
     subject: str
     source_files: list[str]
     test_files: list[str]
+    review_flags: list[str] = dataclasses.field(default_factory=list)
 
 
-def find_candidates(repo: Path, limit: int = 200, max_source_files: int = 20) -> list[Candidate]:
+def find_candidates(repo: Path, limit: int = 200, max_source_files: int = 20, since: str | None = None, include_untested: bool = False) -> list[Candidate]:
     """Scan recent history for commits that touch both source and tests."""
     repo = Path(repo)
     log = _git(
         repo,
-        ["log", f"-{limit}", "--no-merges", "--name-only", "--pretty=format:@@%H %s"],
+        ["log", f"-{limit}", "--no-merges", "--name-only", "--pretty=format:@@%H %s",
+         *([f"--since={since}"] if since else [])],
     )
     candidates: list[Candidate] = []
     sha = subject = None
@@ -52,9 +54,12 @@ def find_candidates(repo: Path, limit: int = 200, max_source_files: int = 20) ->
             return
         tests = [f for f in files if patches.is_test_path(f)]
         source = [f for f in files if f and not patches.is_test_path(f)]
-        if tests and source and len(source) <= max_source_files:
+        if (tests or include_untested) and source and len(source) <= max_source_files:
             candidates.append(
-                Candidate(sha=sha, subject=subject, source_files=source, test_files=tests)
+                Candidate(sha=sha, subject=subject, source_files=source, test_files=tests,
+                          review_flags=(["needs_grader"] if not tests else []) +
+                          (["broad_change_review_scope"] if len(source) > 8 else []) +
+                          ["review_prompt_and_behavioral_coverage"])
             )
 
     for line in log.splitlines():
@@ -129,5 +134,16 @@ def scaffold(repo: Path, commit: str, out_dir: Path, category: str = "bugfix") -
                 "",
             ]
         )
+    )
+    (out_dir / "review.md").write_text(
+        "# Task review\n\n"
+        "- Explain how often this work occurs and why it matters in your workload.\n"
+        "- Map every requirement in the prompt to a behavioral assertion.\n"
+        "- Include ordinary behavior, boundary cases, and unrelated regression checks.\n"
+        "- Add a plausible incomplete fix and confirm the intended check rejects it.\n"
+        "- Verify a second valid implementation is accepted where feasible.\n"
+        "- Freeze dependencies and inputs; keep credentials and solutions out of agent context.\n"
+        "- Record provenance, limitations, and related tasks that must not be double counted.\n"
+        "- Run audit, then smoke --repeat 2, before measuring a model.\n"
     )
     return out_dir

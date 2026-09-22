@@ -1,0 +1,19 @@
+diff --git a/settings.py b/settings.py
+index 7259251..18f13c1 100644
+--- a/settings.py
++++ b/settings.py
+@@ -1,6 +1,11 @@
++from copy import deepcopy
++
+ def migrate_settings(data):
+-    """Upgrade v1 settings to v2 without mutating caller-owned data."""
+-    result = dict(data)
++    if data.get('version', 1) not in (1, 2):
++        raise ValueError('unsupported settings version')
++    result = deepcopy(data)
++    if result.get('version', 1) == 1:
++        result['telemetry'] = {'analytics': result.pop('analytics_enabled', True),
++                               'crashes': result.pop('crashes_enabled', True)}
+     result['version'] = 2
+-    result['telemetry'] = {'analytics': True, 'crashes': True}
+     return result

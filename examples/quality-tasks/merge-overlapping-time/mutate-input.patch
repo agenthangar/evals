@@ -1,0 +1,19 @@
+diff --git a/intervals.py b/intervals.py
+index 110d9de..3768e83 100644
+--- a/intervals.py
++++ b/intervals.py
+@@ -1,7 +1,9 @@
+ def occupied_minutes(intervals, window):
+-    """Union of half-open integer-minute intervals clipped to a reporting window.
+-
+-    Inputs must not be changed. Empty/reversed intervals contribute nothing.
+-    """
++    intervals.sort()
+     start, end = window
+-    return sum(max(0, min(b, end) - max(a, start)) for a, b in intervals)
++    spans = sorted((max(a, start), min(b, end)) for a, b in intervals if b > a)
++    total, cursor = 0, start
++    for left, right in spans:
++        total += max(0, right - max(cursor, left))
++        cursor = max(cursor, right)
++    return total

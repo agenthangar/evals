@@ -18,6 +18,7 @@ CLEARLY_BETTER = "clearly_better"
 ROUGHLY_EQUAL = "roughly_equal"
 CLEARLY_WORSE = "clearly_worse"
 INSUFFICIENT_DATA = "insufficient_data"
+INCONCLUSIVE = "inconclusive"
 
 
 def wilson_interval(successes: int, n: int, z: float = Z95) -> tuple[float, float]:
@@ -81,13 +82,8 @@ def compare(
 ) -> Comparison:
     """Bucket a challenger against the incumbent.
 
-    - insufficient_data: either side has fewer than ``min_trials`` trials.
-    - clearly_better:    the diff CI excludes zero on the positive side.
-    - clearly_worse:     the diff CI excludes zero on the negative side, AND
-                         the point estimate is worse by more than the
-                         equivalence margin (a statistically-real but tiny
-                         deficit still counts as roughly equal).
-    - roughly_equal:     everything else.
+    Equivalence requires the whole interval to fit inside the margin.
+    An interval spanning both meaningful improvement and harm is inconclusive.
     """
     lo, hi = newcombe_diff_interval(
         challenger.successes, challenger.n, incumbent.successes, incumbent.n
@@ -97,10 +93,12 @@ def compare(
         bucket = INSUFFICIENT_DATA
     elif lo > 0:
         bucket = CLEARLY_BETTER
-    elif hi < 0 and diff < -equivalence_margin:
+    elif hi < -equivalence_margin:
         bucket = CLEARLY_WORSE
-    else:
+    elif lo >= -equivalence_margin and hi <= equivalence_margin:
         bucket = ROUGHLY_EQUAL
+    else:
+        bucket = INCONCLUSIVE
     return Comparison(
         challenger=challenger,
         incumbent=incumbent,

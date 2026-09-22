@@ -1,0 +1,28 @@
+diff --git a/test_intervals.py b/test_intervals.py
+new file mode 100644
+index 0000000..c25fd79
+--- /dev/null
++++ b/test_intervals.py
+@@ -0,0 +1,22 @@
++import unittest
++import random
++from intervals import occupied_minutes
++
++class UnionTests(unittest.TestCase):
++    def test_overlap_nested_touching_and_duplicates(self):
++        self.assertEqual(occupied_minutes([(2, 8), (1, 5), (3, 4), (8, 10), (2, 8)], (0, 12)), 9)
++    def test_reference_grid(self):
++        rng = random.Random(73)
++        for _ in range(120):
++            spans = [(rng.randrange(-8, 18), rng.randrange(-8, 18)) for _ in range(12)]
++            expected = sum(any(a <= t < b for a, b in spans) for t in range(0, 10))
++            self.assertEqual(occupied_minutes(spans, (0, 10)), expected)
++
++class ContractTests(unittest.TestCase):
++    def test_inputs_unchanged(self):
++        spans = [(6, 9), (1, 3)]
++        self.assertEqual(occupied_minutes(spans, (0, 10)), 5)
++        self.assertEqual(spans, [(6, 9), (1, 3)])
++    def test_clipping_empty_reversed_and_negative(self):
++        for spans, window, expected in [([], (0,10), 0), ([(-8,20)], (0,10), 10), ([(5,2),(3,3)], (0,10), 0), ([(-8,-2)], (-6,0), 4), ([(0,20)], (10,5), 0)]:
++            self.assertEqual(occupied_minutes(spans, window), expected)

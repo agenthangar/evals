@@ -33,6 +33,7 @@ class ConfigCategoryStats:
     rate: Rate
     total_cost_usd: float | None  # None when no trial reported a cost
     comparison: Comparison | None  # None for the incumbent itself
+    reliable_tasks: Rate = dataclasses.field(default_factory=lambda: Rate(0, 0))
 
     @property
     def cost_per_solve(self) -> float | None:
@@ -58,7 +59,16 @@ def aggregate(
 
     def total_cost(trials: list[TrialResult]) -> float | None:
         costs = [t.cost_usd for t in trials if t.cost_usd is not None]
-        return sum(costs) if costs else None
+        return sum(costs) if costs and len(costs) == len(trials) else None
+
+    def reliable(trials):
+        by_task = defaultdict(list)
+        for trial in trials:
+            by_task[trial.task_id].append(trial.passed)
+        return Rate(sum(all(values) for values in by_task.values()), len(by_task))
+
+    def keys(trials):
+        return {(t.task_id, t.trial) for t in trials}
 
     out: dict[str, dict[str, ConfigCategoryStats]] = defaultdict(dict)
     incumbent = bench_config.incumbent
@@ -72,13 +82,16 @@ def aggregate(
             rate = make_rate(trials)
             comparison = None
             if config.id != incumbent:
-                comparison = compare(rate, incumbent_rate)
+                comparison = compare(reliable(trials), reliable(incumbent_trials))
+                if keys(trials) != keys(incumbent_trials) or len(keys(trials)) != len(trials) or len(keys(incumbent_trials)) != len(incumbent_trials):
+                    comparison.bucket = INSUFFICIENT_DATA
             out[category][config.id] = ConfigCategoryStats(
                 config_id=config.id,
                 category=category,
                 rate=rate,
                 total_cost_usd=total_cost(trials),
                 comparison=comparison,
+                reliable_tasks=reliable(trials),
             )
     return dict(out)
 
@@ -108,6 +121,9 @@ def routing_policy(
             cps = s.cost_per_solve
             return (cps is None, cps if cps is not None else 0.0, -s.rate.point, s.config_id)
 
+        # Missing cost is not zero cost and cannot justify a cheaper route.
+        if any(s.cost_per_solve is None for s in eligible):
+            eligible = [s for s in eligible if s.config_id == incumbent]
         eligible.sort(key=sort_key)
         chosen = eligible[0] if eligible else per_config.get(incumbent)
         if chosen is None:
@@ -118,7 +134,7 @@ def routing_policy(
             if s.comparison and s.comparison.bucket == INSUFFICIENT_DATA
         )
         why = (
-            f"cheapest config not clearly worse than incumbent "
+            f"lowest known cost among demonstrated equivalent or better configs "
             f"(pass {chosen.rate.successes}/{chosen.rate.n})"
         )
         if chosen.config_id == incumbent and len(eligible) == 1:
@@ -132,6 +148,8 @@ def routing_policy(
                     "config": s.config_id,
                     "pass_rate": round(s.rate.point, 3),
                     "trials": s.rate.n,
+                    "distinct_tasks": s.reliable_tasks.n,
+                    "reliably_solved_tasks": s.reliable_tasks.successes,
                     "cost_per_solve_usd": (
                         round(s.cost_per_solve, 4) if s.cost_per_solve is not None else None
                     ),
@@ -153,6 +171,7 @@ def render_markdown(
     policy: dict[str, dict],
     bench_config: BenchConfig,
     snapshot: str,
+    results: list[TrialResult] | None = None,
 ) -> str:
     lines = [
         f"# Benchmark snapshot: {snapshot}",
@@ -163,8 +182,8 @@ def render_markdown(
         "",
         "## Overall",
         "",
-        "| Config | Pass rate (95% CI) | Trials | Total cost | Cost/solve | vs incumbent |",
-        "|---|---|---|---|---|---|",
+        "| Config | Pass rate (95% CI) | Trials | Reliable tasks | Total cost | Cost/solve | vs incumbent |",
+        "|---|---|---|---|---|---|---|",
     ]
     overall = aggregated.get(ALL, {})
     for config in bench_config.configs:
@@ -175,7 +194,7 @@ def render_markdown(
         cost = f"${s.total_cost_usd:.2f}" if s.total_cost_usd is not None else "n/a"
         cps = f"${s.cost_per_solve:.2f}" if s.cost_per_solve is not None else "n/a"
         lines.append(
-            f"| `{s.config_id}` | {_fmt_ci(s.rate)} | {s.rate.n} | {cost} | {cps} | {bucket} |"
+            f"| `{s.config_id}` | {_fmt_ci(s.rate)} | {s.rate.n} | {s.reliable_tasks.successes}/{s.reliable_tasks.n} | {cost} | {cps} | {bucket} |"
         )
 
     lines += ["", "## By category", ""]
@@ -206,12 +225,29 @@ def render_markdown(
             lines.append(f"| {category} | `{entry['use']}` | {entry['why']} |")
     else:
         lines.append("_No per-category results._")
+    if results:
+        lines += ["", "## Per-task evidence", "",
+                  "| Task | Config | Passed attempts | Mean agent seconds | Failed checks / reasons |",
+                  "|---|---|---|---|---|"]
+        cells = defaultdict(list)
+        for result in results:
+            cells[(result.task_id, result.config_id)].append(result)
+        for (task_id, config_id), attempts in sorted(cells.items()):
+            failures = sorted({c["id"] + ":" + c["reason"] for r in attempts
+                               for c in r.check_results if not c["passed"]} |
+                              {r.grade_reason for r in attempts if not r.passed and not r.check_results})
+            duration = sum(r.agent_duration_seconds for r in attempts) / len(attempts)
+            lines.append(f"| `{task_id}` | `{config_id}` | {sum(r.passed for r in attempts)}/{len(attempts)} | {duration:.1f} | {', '.join(failures) or 'none'} |")
     lines += [
         "",
-        "Buckets: `clearly_better` / `roughly_equal` / `clearly_worse` vs the "
-        "incumbent (Newcombe 95% CI on the pass-rate difference; deficits "
-        "within the 10-point equivalence margin count as roughly equal). "
-        "`insufficient_data` means too few trials to say anything.",
+        "Comparisons use distinct tasks solved on every attempt, with matched task/trial "
+        "coverage and at least six distinct tasks per side. Repeating one task does not "
+        "add independent evidence. Newcombe 95% intervals are approximate and assume "
+        "independent tasks; related tasks from one incident should be kept in one category "
+        "and reviewed for dependence. `roughly_equal` requires the entire difference "
+        "interval within +/-10 points; otherwise uncertainty is `inconclusive`. "
+        "Trial pass-rate Wilson intervals above are descriptive, not the routing test. "
+        "Missing cost on any attempt makes total cost and cost/solve unavailable.",
         "",
     ]
     return "\n".join(lines)

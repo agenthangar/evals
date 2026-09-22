@@ -1,0 +1,47 @@
+id: preserve-settings-migration
+category: compatibility
+repo:
+  url: repo.bundle
+  base_commit: 50459a19e157ed2297b955ea5f9f48c95e389ba2
+prompt_file: prompt.md
+tests:
+  patch_file: tests.patch
+  checks:
+  - id: migration
+    command: python3 -m unittest test_settings.MigrationTests
+    timeout_seconds: 30
+  - id: preservation
+    command: python3 -m unittest test_settings.PreservationTests
+    timeout_seconds: 30
+  protected_paths: []
+environment:
+  runner: local
+solution:
+  patch_file: solution.patch
+evaluation:
+  criteria:
+  - id: consent
+    description: Explicit opt-outs and missing defaults survive the schema upgrade
+    check: migration
+  - id: preservation
+    description: Idempotence, nested isolation, unknown fields and future-version
+      rejection
+    check: preservation
+  negative_controls:
+  - id: false-as-missing
+    patch_file: false-as-missing.patch
+    reason: Treats an explicit opt-out as a missing value
+    fails:
+    - migration
+  - id: shallow-copy
+    patch_file: shallow-copy.patch
+    reason: Shares nested mutable values with the caller
+    fails:
+    - preservation
+  limitations:
+  - Public teaching fixture with visible reference answers; not a leaderboard task.
+  - Does not test real storage, SDK initialization or consent UI.
+provenance:
+  source: synthetic teaching fixture
+  why_this_task: Shows why successful happy-path migration alone does not prove preservation
+    of user choices.

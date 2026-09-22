@@ -6,6 +6,7 @@ from bench.stats import (
     CLEARLY_BETTER,
     CLEARLY_WORSE,
     INSUFFICIENT_DATA,
+    INCONCLUSIVE,
     ROUGHLY_EQUAL,
     Rate,
     compare,
@@ -54,9 +55,9 @@ def test_compare_insufficient_data():
     assert c.bucket == INSUFFICIENT_DATA
 
 
-def test_compare_roughly_equal():
+def test_uncertainty_is_not_equivalence():
     c = compare(Rate(27, 30), Rate(28, 30))
-    assert c.bucket == ROUGHLY_EQUAL
+    assert c.bucket == INCONCLUSIVE
 
 
 def test_compare_clearly_worse():
@@ -74,3 +75,7 @@ def test_small_statistical_deficit_is_roughly_equal():
     c = compare(Rate(920, 1000), Rate(970, 1000))
     assert c.diff_interval[1] < 0  # statistically worse...
     assert c.bucket == ROUGHLY_EQUAL  # ...but not practically worse
+
+
+def test_equivalence_requires_interval_inside_margin():
+    assert compare(Rate(950, 1000), Rate(950, 1000)).bucket == ROUGHLY_EQUAL

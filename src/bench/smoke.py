@@ -1,23 +1,8 @@
-"""Smoke-test gate: verify every task can still detect success and failure.
-
-Run this before every benchmark snapshot. A task passes the gate when:
-
-  1. the known-good solution patch grades as PASS (the environment and tests
-     still work), and
-  2. an empty diff grades as FAIL (the held-out tests actually detect the
-     problem - otherwise every no-op agent would "solve" the task).
-
-Tasks that fail the gate must be quarantined, not run: a broken task would
-otherwise masquerade as model failures (or free passes) in the results.
-"""
-
+"""Calibrate graders against good, empty and plausible wrong solutions."""
 from __future__ import annotations
-
 import dataclasses
-
 from bench import grade
 from bench.task import Task
-
 
 @dataclasses.dataclass
 class SmokeResult:
@@ -26,29 +11,35 @@ class SmokeResult:
     solution_passed: bool
     empty_failed: bool
     detail: str
+    controls: list[dict] = dataclasses.field(default_factory=list)
 
 
-def smoke_task(task: Task) -> SmokeResult:
-    solution = grade.grade_diff(task, task.solution_patch)
-    empty = grade.grade_diff(task, "")
-    ok = solution.passed and not empty.passed
-    details = []
-    if not solution.passed:
-        details.append(
-            f"known-good solution FAILED ({solution.reason}):\n{solution.output[-2000:]}"
-        )
-    if empty.passed:
-        details.append(
-            "empty diff PASSED - the held-out tests do not detect the problem"
-        )
-    return SmokeResult(
-        task_id=task.id,
-        ok=ok,
-        solution_passed=solution.passed,
-        empty_failed=not empty.passed,
-        detail="\n".join(details) if details else "ok",
-    )
+def smoke_task(task: Task, repeats: int = 1) -> SmokeResult:
+    if repeats < 1:
+        raise ValueError("repeats must be positive")
+    details, evidence = [], []
+    solution_passed = empty_failed = True
+    for repeat in range(1, repeats + 1):
+        solution = grade.grade_diff(task, task.solution_patch)
+        empty = grade.grade_diff(task, "")
+        solution_passed &= solution.passed
+        # An invalid patch or timeout is not evidence the assertions catch a bug.
+        empty_failed &= empty.reason == "tests_failed"
+        if not solution.passed:
+            details.append(f"known-good solution FAILED ({solution.reason}):\n{solution.output[-2000:]}")
+        if empty.reason != "tests_failed":
+            details.append(f"empty diff must fail tests, got {empty.reason}:\n{empty.output[-1000:]}")
+        for control in task.negative_controls:
+            result = grade.grade_diff(task, control.patch)
+            failed_checks = {c["id"] for c in result.checks if c["reason"] == "tests_failed"}
+            detected = set(control.fails) <= failed_checks
+            evidence.append({"id": control.id, "repeat": repeat, "detected": detected,
+                             "reason": result.reason, "failed_checks": sorted(failed_checks)})
+            if not detected:
+                details.append(f"negative control {control.id} was not detected by {control.fails} ({result.reason})")
+    return SmokeResult(task.id, not details, solution_passed, empty_failed,
+                       "\n".join(details) or "ok", evidence)
 
 
-def smoke_all(tasks: list[Task]) -> list[SmokeResult]:
-    return [smoke_task(t) for t in tasks]
+def smoke_all(tasks: list[Task], repeats: int = 1) -> list[SmokeResult]:
+    return [smoke_task(t, repeats) for t in tasks]

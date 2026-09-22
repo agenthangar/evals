@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 
 
@@ -80,3 +81,18 @@ def restore_paths(workdir: Path, base_commit: str, paths: list[str]) -> None:
         target = Path(workdir) / p
         if target.is_file():
             target.unlink()
+
+
+def agent_checkout(repo_url: str, commit: str, dest: Path) -> tuple[Path, str]:
+    """Export only the starting tree, with no remote, later refs or solution history.
+
+    This limits accidental answer leakage; it is not an OS security boundary.
+    """
+    workdir = checkout(repo_url, commit, dest)
+    shutil.rmtree(workdir / ".git")
+    _git(["init", "--quiet", "-b", "benchmark"], cwd=workdir)
+    _git(["config", "user.email", "bench@localhost"], cwd=workdir)
+    _git(["config", "user.name", "bench"], cwd=workdir)
+    _git(["add", "-f", "."], cwd=workdir)
+    _git(["commit", "--quiet", "--allow-empty", "-m", "Benchmark starting tree"], cwd=workdir)
+    return workdir, _git(["rev-parse", "HEAD"], cwd=workdir).stdout.strip()

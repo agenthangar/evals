@@ -1,0 +1,34 @@
+diff --git a/test_settings.py b/test_settings.py
+new file mode 100644
+index 0000000..7d94e62
+--- /dev/null
++++ b/test_settings.py
+@@ -0,0 +1,28 @@
++import unittest
++from copy import deepcopy
++from settings import migrate_settings
++
++class MigrationTests(unittest.TestCase):
++    def test_all_opt_out_combinations(self):
++        for a in [False, True]:
++            for c in [False, True]:
++                data = {'version': 1, 'analytics_enabled': a, 'crashes_enabled': c}
++                out = migrate_settings(data)
++                self.assertEqual(out, {'version': 2, 'telemetry': {'analytics': a, 'crashes': c}})
++    def test_defaults_and_absent_version(self):
++        self.assertEqual(migrate_settings({})['telemetry'], {'analytics': True, 'crashes': True})
++        self.assertFalse(migrate_settings({'crashes_enabled':False})['telemetry']['crashes'])
++
++class PreservationTests(unittest.TestCase):
++    def test_v2_idempotence_unknown_fields_and_no_aliases(self):
++        for data in [{'version':1,'analytics_enabled':False,'theme':{'accent':['blue']}},
++                     {'version':2,'telemetry':{'analytics':False,'crashes':True,'extra':'keep'},'theme':{'accent':['blue']}}]:
++            original = deepcopy(data)
++            out = migrate_settings(data)
++            self.assertEqual(migrate_settings(out), out)
++            out['theme']['accent'].append('red')
++            self.assertEqual(data, original)
++    def test_future_version_is_rejected_without_changes(self):
++        data = {'version':3,'theme':{'accent':['blue']}}
++        with self.assertRaises(ValueError): migrate_settings(data)
++        self.assertEqual(data['version'],3)

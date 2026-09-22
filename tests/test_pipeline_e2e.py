@@ -143,8 +143,8 @@ def test_run_matrix_and_report(task_dir, tmp_path):
     assert yaml.safe_load(yaml_out)["routing"]["bugfix"]["use"] == "good-agent"
 
 
-def test_routing_prefers_cheap_equivalent(task_dir, tmp_path):
-    """Two configs that both pass -> the cheaper one wins the routing slot."""
+def test_repeated_single_task_does_not_establish_equivalence(task_dir, tmp_path):
+    """Repeated successes on one task cannot establish general equivalence."""
     task = Task.load(task_dir)
     good_patch = tmp_path / "good.patch"
     good_patch.write_text(GOOD_PATCH)
@@ -175,7 +175,7 @@ def test_routing_prefers_cheap_equivalent(task_dir, tmp_path):
     )
     aggregated = report.aggregate(results, bench_config)
     policy = report.routing_policy(aggregated, bench_config)
-    assert policy["bugfix"]["use"] == "cheap"
+    assert policy["bugfix"]["use"] == "expensive"
 
 
 def test_run_matrix_rejects_unknown_selections(task_dir, tmp_path):

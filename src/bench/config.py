@@ -22,6 +22,7 @@ snapshot::
 from __future__ import annotations
 
 import dataclasses
+import re
 from pathlib import Path
 
 import yaml
@@ -142,7 +143,11 @@ def load(path: Path) -> BenchConfig:
             )
         )
 
+    if not configs:
+        raise ConfigError(f"{path}: configs must not be empty")
     ids = [c.id for c in configs]
+    if any(not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]*", value) for value in ids):
+        raise ConfigError(f"{path}: config ids must be safe identifiers")
     if len(set(ids)) != len(ids):
         raise ConfigError(f"{path}: duplicate config ids")
 

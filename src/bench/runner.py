@@ -17,11 +17,17 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import hashlib
+import random
+import platform
+import re
+import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
 
-from bench import grade, harness, workspace
+from bench import __version__, grade, harness, workspace
 from bench.config import BenchConfig, ProductConfig
 from bench.task import Task
 
@@ -30,6 +36,29 @@ DEFAULT_AGENT_TIMEOUT = 1800  # seconds per agent run
 
 class RunError(Exception):
     """Raised when a requested benchmark matrix cannot be constructed."""
+
+
+def _digest(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def _config_fingerprint(config: ProductConfig) -> str:
+    contract = dataclasses.asdict(config)
+    if config.patch_file:
+        contract["patch_contents"] = Path(config.patch_file).read_text()
+    return _digest(contract)
+
+
+def verify_report_config(snapshot_dir: Path, config: BenchConfig) -> None:
+    path = Path(snapshot_dir) / "manifest.json"
+    if not path.exists():
+        return  # legacy reports remain readable, with conservative comparisons
+    manifest = json.loads(path.read_text())
+    if manifest["incumbent"] != config.incumbent:
+        raise RunError("report incumbent differs from the frozen snapshot")
+    for entry in manifest["configs"]:
+        if _config_fingerprint(config.by_id(entry["id"])) != entry["sha256"]:
+            raise RunError("report configuration differs from the frozen snapshot")
 
 
 @dataclasses.dataclass
@@ -44,6 +73,7 @@ class TrialResult:
     agent_duration_seconds: float
     agent_timed_out: bool
     diff_bytes: int
+    check_results: list[dict] = dataclasses.field(default_factory=list)
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -60,10 +90,10 @@ def run_trial(
     adapter = harness.get(config.harness)
 
     with tempfile.TemporaryDirectory(prefix="bench-run-") as tmp:
-        workdir = workspace.checkout(task.repo_url, task.base_commit, Path(tmp) / "repo")
+        workdir, base = workspace.agent_checkout(task.repo_url, task.base_commit, Path(tmp) / "repo")
         agent = adapter.run(config, workdir, task.prompt, timeout=agent_timeout)
-        diff = workspace.capture_diff(workdir, task.base_commit)
-        graded = grade.grade_workdir(task, workdir)
+        diff = workspace.capture_diff(workdir, base)
+        graded = grade.grade_diff(task, diff)
 
     (out_dir / "diff.patch").write_text(diff)
     (out_dir / "agent.log").write_text(
@@ -90,8 +120,11 @@ def run_trial(
         agent_duration_seconds=round(agent.duration_seconds, 2),
         agent_timed_out=agent.timed_out,
         diff_bytes=len(diff.encode()),
+        check_results=[{k: v for k, v in c.items() if k != "output"} for c in graded.checks],
     )
-    (out_dir / "result.json").write_text(json.dumps(result.to_dict(), indent=2) + "\n")
+    pending = out_dir / "result.json.tmp"
+    pending.write_text(json.dumps(result.to_dict(), indent=2) + "\n")
+    pending.replace(out_dir / "result.json")
     return result
 
 
@@ -140,26 +173,67 @@ def run_matrix(
         raise RunError("no configurations selected")
     if not selected:
         raise RunError("no tasks selected")
+    # Refuse stale cache reuse when any task, grader, model or budget changes.
+    snapshot_dir = Path(snapshot_dir)
+    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_.-]*", snapshot_dir.name):
+        raise RunError("snapshot name must be a safe identifier")
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    task_contracts = []
+    for task in sorted(selected, key=lambda t: t.id):
+        contract = dataclasses.asdict(task)
+        contract.pop("path")
+        task_contracts.append({"id": task.id, "sha256": _digest(contract)})
+    config_contracts = []
+    for config in sorted(configs, key=lambda c: c.id):
+        config_contracts.append({"id": config.id, "sha256": _config_fingerprint(config),
+                                 "harness": config.harness, "model": config.model,
+                                 "extra_args": config.extra_args})
+    versions = {}
+    for binary in sorted({{"codex": "codex", "claude-code": "claude", "cursor": "cursor-agent"}.get(c.harness, "") for c in configs} - {""}):
+        try:
+            proc = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=10)
+            if proc.returncode:
+                raise RunError(f"cannot determine {binary} version: {proc.stderr.strip()}")
+            versions[binary] = proc.stdout.strip()
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise RunError(f"cannot determine {binary} version: {exc}") from exc
+    engine_digest = _digest({str(p.relative_to(Path(__file__).parent)): p.read_text()
+                            for p in sorted(Path(__file__).parent.rglob("*.py"))})
+    manifest = {"schema": 1, "engine_sha256": engine_digest,
+                "runtime": {"python": sys.version, "platform": platform.platform(), "cli_versions": versions}, "engine": __version__, "tasks": task_contracts,
+                "configs": config_contracts, "trials": trials, "agent_timeout": agent_timeout,
+                "incumbent": bench_config.incumbent}
+    manifest_path = snapshot_dir / "manifest.json"
+    if manifest_path.exists():
+        if json.loads(manifest_path.read_text()) != manifest:
+            raise RunError("snapshot inputs changed; choose a new snapshot name")
+    elif any(snapshot_dir.glob("*/*/trial-*/result.json")):
+        raise RunError("legacy snapshot has no input manifest; choose a new snapshot name")
+    else:
+        manifest_path.write_text(json.dumps(manifest, indent=2) + "\n")
     results: list[TrialResult] = []
     total = len(selected) * len(configs) * trials
     done = 0
     started = time.monotonic()
-    for task in selected:
-        for config in configs:
-            for trial in range(1, trials + 1):
-                done += 1
-                out_dir = snapshot_dir / task.id / config.id / f"trial-{trial}"
-                existing = out_dir / "result.json"
-                if existing.exists():
-                    data = json.loads(existing.read_text())
-                    results.append(TrialResult(**data))
-                    log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: cached")
-                    continue
-                result = run_trial(task, config, trial, out_dir, agent_timeout)
-                results.append(result)
-                status = "PASS" if result.passed else f"FAIL ({result.grade_reason})"
-                cost = f"${result.cost_usd:.2f}" if result.cost_usd is not None else "cost n/a"
-                log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: {status}, {cost}")
+    cells = [(task, config, trial) for task in selected for config in configs
+             for trial in range(1, trials + 1)]
+    random.Random(0).shuffle(cells)  # deterministic interleaving limits order effects
+    for task, config, trial in cells:
+        done += 1
+        out_dir = snapshot_dir / task.id / config.id / f"trial-{trial}"
+        existing = out_dir / "result.json"
+        if existing.exists():
+            data = json.loads(existing.read_text())
+            if (data.get("task_id"), data.get("config_id"), data.get("trial")) != (task.id, config.id, trial):
+                raise RunError(f"cached result does not match its matrix cell: {existing}")
+            results.append(TrialResult(**data))
+            log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: cached")
+            continue
+        result = run_trial(task, config, trial, out_dir, agent_timeout)
+        results.append(result)
+        status = "PASS" if result.passed else f"FAIL ({result.grade_reason})"
+        cost = f"${result.cost_usd:.2f}" if result.cost_usd is not None else "cost n/a"
+        log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: {status}, {cost}")
     log(f"snapshot complete: {done} trials in {time.monotonic() - started:.0f}s")
     return results
 
@@ -169,4 +243,12 @@ def load_results(snapshot_dir: Path) -> list[TrialResult]:
     results = []
     for path in sorted(Path(snapshot_dir).glob("*/*/trial-*/result.json")):
         results.append(TrialResult(**json.loads(path.read_text())))
+    manifest_path = Path(snapshot_dir) / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        expected = {(t["id"], c["id"], trial) for t in manifest["tasks"]
+                    for c in manifest["configs"] for trial in range(1, manifest["trials"] + 1)}
+        actual = {(r.task_id, r.config_id, r.trial) for r in results}
+        if actual != expected or len(actual) != len(results):
+            raise RunError("snapshot matrix is incomplete or contains unexpected cells; resume it before reporting")
     return results
