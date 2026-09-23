@@ -71,6 +71,11 @@ snapshot linked to the original generation manifest. Disclose this post-hoc
 calibration and validate conclusions on fresh tasks before making strong routing
 claims.
 
+If the prompt leaves a tested requirement ambiguous, clarify the task contract
+and rerun that task for every compared configuration and repetition. Keep the
+earlier cohort as diagnostic evidence and disclose the new input version;
+regrading an old answer cannot measure performance on a newly clarified request.
+
 ## Keep comparisons fair
 
 A candidate is a model **plus** harness, effort, prompt, tools, environment,
