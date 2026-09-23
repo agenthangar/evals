@@ -41,6 +41,12 @@ negative controls aimed at shortcuts (empty output, skipped work, ignored errors
 as well as realistic domain mistakes. Examine each failure log: syntax failure
 and failed assertions are different evidence.
 
+Give held-out tests their own test target or namespace so valid candidate-authored
+tests cannot collide with evaluator class names. Check evidence relationships
+instead of incidental claim IDs. When prose is unconstrained, validate structured
+facts automatically and record a separate semantic review; capitalization and
+one preferred sentence are poor correctness criteria.
+
 For subjective artifacts, first check objective requirements, then have reviewers
 score anonymized outputs in randomized order. Use anchored dimensions such as
 correctness, completeness, evidence, usability and constraint adherence, with
@@ -57,6 +63,13 @@ clean generated products before grading. Compiled caches can embed absolute path
 and fail when moved, even when the source is correct. Keep infrastructure failures
 separate from behavioral failures; fix the environment and start a new snapshot
 when the evaluation contract changes.
+
+A live pilot may still reveal grader defects. Preserve its original results and
+candidate patches, document every repair, recalibrate the grader, and regrade
+every unchanged candidate under the same corrected contract. Record a derived
+snapshot linked to the original generation manifest. Disclose this post-hoc
+calibration and validate conclusions on fresh tasks before making strong routing
+claims.
 
 ## Keep comparisons fair
 
