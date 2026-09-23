@@ -49,6 +49,15 @@ calibrate any future model judge against those human judgments, and test for
 order, length and self-preference bias. Keep manual judgments outside automatic
 routing until the engine has a reviewed implementation for that lane.
 
+Also smoke-test the complete transport path: build or test a reference candidate
+in the agent environment, capture its diff, and grade that diff in a fresh
+checkout. Reference-patch calibration alone does not exercise generated build
+products. Include suitable build/cache exclusions in the starting repository and
+clean generated products before grading. Compiled caches can embed absolute paths
+and fail when moved, even when the source is correct. Keep infrastructure failures
+separate from behavioral failures; fix the environment and start a new snapshot
+when the evaluation contract changes.
+
 ## Keep comparisons fair
 
 A candidate is a model **plus** harness, effort, prompt, tools, environment,
@@ -57,6 +66,13 @@ configurations, not isolated foundation-model quality. Effort labels are not
 equal compute budgets across providers. Record wall time and cost as well as
 success. Keep toolchain versions, dependencies, network policy and hardware
 consistent, and avoid training or tuning on the final held-out tasks.
+
+Before a full matrix, run a small live edit-and-test probe for each exact model ID
+under the actual agent permissions. A CLI being installed or authenticated does
+not prove that it supports a newly released model. Resolve CLI-version and account
+access problems before freezing the snapshot; never silently substitute a model.
+Give every candidate the same environment setup guidance, including any nested
+sandbox restrictions, and keep smoke-probe costs separate from scored attempts.
 
 The runner interleaves cells in a stable shuffled order. It fingerprints the
 contract and selected matrix to prevent accidental stale-cache reuse, and records

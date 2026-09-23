@@ -43,7 +43,7 @@ def test_public_example_loads_concrete_product_matrix():
     cfg = load(path)
 
     assert cfg.incumbent == "codex-astra-high"
-    assert len(cfg.configs) == 5
+    assert len(cfg.configs) == 6
     assert cfg.by_id("codex-astra-high").model == "gpt-6-astra"
     assert cfg.by_id("codex-astra-high").cost.cached_input_per_mtok == 1.0
     assert cfg.by_id("claude-opus-5-5-high").model == "claude-opus-5-5"
