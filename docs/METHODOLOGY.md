@@ -155,3 +155,6 @@ Cost per solve includes successful and failed attempts. If any cost is missing,
 the aggregate cost is unknown, not the sum of the known portion. Compare the
 same cost basis for all contenders. An automatic incumbent fallback indicates
 insufficient evidence for switching; it does not certify the incumbent's quality.
+
+For a concrete workflow covering databases, authenticated APIs, browser downloads
+and partial external failures, see [integration task capture](INTEGRATION_TASKS.md).
