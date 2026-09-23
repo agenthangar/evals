@@ -34,6 +34,8 @@ class ConfigCategoryStats:
     total_cost_usd: float | None  # None when no trial reported a cost
     comparison: Comparison | None  # None for the incumbent itself
     reliable_tasks: Rate = dataclasses.field(default_factory=lambda: Rate(0, 0))
+    interrupted_attempts: int = 0
+    execution_unknown_attempts: int = 0
 
     @property
     def cost_per_solve(self) -> float | None:
@@ -85,6 +87,8 @@ def aggregate(
                 comparison = compare(reliable(trials), reliable(incumbent_trials))
                 if keys(trials) != keys(incumbent_trials) or len(keys(trials)) != len(trials) or len(keys(incumbent_trials)) != len(incumbent_trials):
                     comparison.bucket = INSUFFICIENT_DATA
+                if any(t.agent_exit_code is None for t in trials + incumbent_trials):
+                    comparison.bucket = INSUFFICIENT_DATA
             out[category][config.id] = ConfigCategoryStats(
                 config_id=config.id,
                 category=category,
@@ -92,6 +96,8 @@ def aggregate(
                 total_cost_usd=total_cost(trials),
                 comparison=comparison,
                 reliable_tasks=reliable(trials),
+                interrupted_attempts=sum(t.agent_timed_out or t.agent_exit_code not in (None, 0) for t in trials),
+                execution_unknown_attempts=sum(t.agent_exit_code is None and not t.agent_timed_out for t in trials),
             )
     return dict(out)
 
@@ -150,6 +156,8 @@ def routing_policy(
                     "trials": s.rate.n,
                     "distinct_tasks": s.reliable_tasks.n,
                     "reliably_solved_tasks": s.reliable_tasks.successes,
+                    "interrupted_attempts": s.interrupted_attempts,
+                    "execution_unknown_attempts": s.execution_unknown_attempts,
                     "cost_per_solve_usd": (
                         round(s.cost_per_solve, 4) if s.cost_per_solve is not None else None
                     ),
@@ -197,6 +205,20 @@ def render_markdown(
             f"| `{s.config_id}` | {_fmt_ci(s.rate)} | {s.rate.n} | {s.reliable_tasks.successes}/{s.reliable_tasks.n} | {cost} | {cps} | {bucket} |"
         )
 
+    lines += ["", "## Execution outcomes", "",
+              "Passes require both a successful agent exit and passing artifact checks. "
+              "Interrupted attempts include timeouts and nonzero exits; inspect the agent log "
+              "to distinguish provider availability, harness errors and task failures. "
+              "They remain unsuccessful attempts in completion and routing statistics. "
+              "Legacy snapshots without an exit code keep their original scores and are marked unknown; "
+              "they cannot establish a new routing comparison.", "",
+              "| Config | Interrupted attempts | Execution unknown |",
+              "|---|---|---|"]
+    for config in bench_config.configs:
+        s = overall.get(config.id)
+        if s:
+            lines.append(f"| `{s.config_id}` | {s.interrupted_attempts} | {s.execution_unknown_attempts} |")
+
     lines += ["", "## By category", ""]
     for category in sorted(aggregated):
         if category == ALL:
@@ -235,7 +257,8 @@ def render_markdown(
         for (task_id, config_id), attempts in sorted(cells.items()):
             failures = sorted({c["id"] + ":" + c["reason"] for r in attempts
                                for c in r.check_results if not c["passed"]} |
-                              {r.grade_reason for r in attempts if not r.passed and not r.check_results})
+                              {r.grade_reason for r in attempts if not r.passed and
+                               (not r.check_results or r.agent_timed_out or r.agent_exit_code not in (None, 0))})
             duration = sum(r.agent_duration_seconds for r in attempts) / len(attempts)
             lines.append(f"| `{task_id}` | `{config_id}` | {sum(r.passed for r in attempts)}/{len(attempts)} | {duration:.1f} | {', '.join(failures) or 'none'} |")
     lines += [
