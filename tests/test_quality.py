@@ -113,7 +113,7 @@ def results(n=100, missing=False, partial=False):
     for i in range(n):
         for name,cost in [('baseline',2.0),('cheap',0.2)]:
             if partial and name=='cheap' and i==0:continue
-            out.append(runner.TrialResult(str(i),'bugfix',name,1,True,'tests_passed',None if missing and name=='cheap' and i==0 else cost,1,False,10))
+            out.append(runner.TrialResult(str(i),'bugfix',name,1,True,'tests_passed',None if missing and name=='cheap' and i==0 else cost,1,False,10,agent_exit_code=0))
     return out
 
 
@@ -130,6 +130,16 @@ def test_missing_cost_is_not_free_and_partial_coverage_is_not_equivalence():
     assert report.routing_policy(aggregated,cfg)['bugfix']['use']=='baseline'
     partial=report.aggregate(results(partial=True),cfg)
     assert partial['bugfix']['cheap'].comparison.bucket==INSUFFICIENT_DATA
+
+
+def test_legacy_unknown_execution_cannot_establish_a_routing_comparison():
+    cfg=BenchConfig('baseline',[ProductConfig('baseline','script'),ProductConfig('cheap','script')])
+    attempts=results()
+    attempts[0].agent_exit_code=None
+    aggregated=report.aggregate(attempts,cfg)
+    assert aggregated['bugfix']['baseline'].rate.successes==100
+    assert aggregated['bugfix']['cheap'].comparison.bucket==INSUFFICIENT_DATA
+    assert report.routing_policy(aggregated,cfg)['bugfix']['use']=='baseline'
 
 
 def test_public_quality_tasks_calibrate():

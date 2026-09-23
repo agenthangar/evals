@@ -11,6 +11,7 @@ import yaml
 from bench import config as config_mod
 from bench import grade, report, runner, smoke
 from bench.task import Task
+from bench.harness.base import HarnessResult
 
 GOOD_PATCH = """\
 diff --git a/calc.py b/calc.py
@@ -115,6 +116,8 @@ def test_run_matrix_and_report(task_dir, tmp_path):
         by_config.setdefault(r.config_id, []).append(r.passed)
     assert all(by_config["good-agent"])
     assert not any(by_config["lazy-agent"])
+    assert all(r.agent_exit_code == 0 for r in results)
+    assert all(r.artifact_passed == r.passed for r in results)
 
     # Artifacts persisted per trial
     trial_dir = snapshot_dir / "fix-add" / "good-agent" / "trial-1"
@@ -198,3 +201,61 @@ def test_run_matrix_rejects_unknown_selections(task_dir, tmp_path):
             tmp_path / "runs-task",
             task_ids=["does-not-exist"],
         )
+
+
+@pytest.mark.parametrize("exit_code,timed_out,reason", [
+    (1, False, "agent_exited_nonzero"),
+    (-9, True, "agent_timed_out"),
+    (0, True, "agent_timed_out"),
+])
+def test_interrupted_agent_with_passing_patch_is_not_a_completed_pass(
+    task_dir, tmp_path, monkeypatch, exit_code, timed_out, reason
+):
+    """A real passing artifact remains diagnostic when its agent did not finish."""
+    from bench import workspace
+
+    task = Task.load(task_dir)
+    good_patch = tmp_path / "good.patch"
+    good_patch.write_text(GOOD_PATCH)
+    config = config_mod.load(write_config(tmp_path / "configs.yaml", good_patch))
+
+    class Interrupted:
+        def run(self, product, workdir, prompt, timeout):
+            workspace.apply_patch(workdir, GOOD_PATCH)
+            return HarnessResult(exit_code, "synthetic interrupted execution", "", 1.0, timed_out)
+
+    monkeypatch.setattr(runner.harness, "get", lambda _: Interrupted())
+    output = tmp_path / "snapshot" / task.id / "good-agent" / "trial-1"
+    result = runner.run_trial(task, config.by_id("good-agent"), 1, output)
+    assert not result.passed
+    assert result.grade_reason == reason
+    assert result.agent_exit_code == exit_code
+    assert result.artifact_passed is True
+    assert result.artifact_grade_reason == "tests_passed"
+    assert all(check["passed"] for check in result.check_results)
+    loaded = runner.load_results(tmp_path / "snapshot")
+    assert loaded == [result]
+    aggregated = report.aggregate(loaded, config)
+    assert aggregated[report.ALL]["good-agent"].rate.successes == 0
+    assert aggregated[report.ALL]["good-agent"].interrupted_attempts == 1
+    policy = report.routing_policy(aggregated, config)
+    assert policy["bugfix"]["candidates"][0]["interrupted_attempts"] == 1
+    markdown = report.render_markdown(aggregated, policy, config, "snapshot", loaded)
+    assert reason in markdown
+    assert "| `good-agent` | 1 | 0 |" in markdown
+
+
+def test_legacy_execution_outcomes_stay_unknown(tmp_path):
+    result = runner.TrialResult("task", "bugfix", "good-agent", 1, True,
+                                "tests_passed", 1.0, 2.0, False, 10)
+    data = result.to_dict()
+    for field in ["agent_exit_code", "artifact_passed", "artifact_grade_reason"]:
+        del data[field]
+    restored = runner.TrialResult(**data)
+    assert restored.passed and restored.agent_exit_code is None
+    good_patch = tmp_path / "good.patch"
+    good_patch.write_text(GOOD_PATCH)
+    config = config_mod.load(write_config(tmp_path / "configs.yaml", good_patch))
+    stats = report.aggregate([restored], config)[report.ALL]["good-agent"]
+    assert stats.execution_unknown_attempts == 1
+    assert stats.interrupted_attempts == 0

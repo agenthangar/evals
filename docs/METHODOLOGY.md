@@ -1,5 +1,22 @@
 # Evaluating models for your work
 
+## Distinguish execution from artifact quality
+
+An attempt passes only when the agent exits successfully within its budget and
+the captured artifact passes its checks. A useful partial patch does not turn a
+timeout or nonzero agent exit into a completed task. Results retain the agent
+exit code and separate artifact grade, so interrupted work can still be inspected.
+Older snapshots without execution metadata keep their original scores; their
+execution outcome is unknown and cannot establish a new routing comparison.
+
+Investigate interruptions before interpreting them as model-quality failures.
+Provider quotas and authentication failures differ from a completed implementation
+that fails behavioral checks. Preserve the original attempt and its evidence.
+After a confirmed external problem is resolved, use a fresh access smoke and a
+separate, explicitly linked retry cohort with unchanged prompts and budgets.
+Report availability and retry costs alongside correctness. Do not quietly replace
+failed attempts or retry ordinary task failures until they pass.
+
 ## Select for relevance before difficulty
 
 Keep a private candidate inventory with the original request, source, date,

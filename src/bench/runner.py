@@ -74,6 +74,10 @@ class TrialResult:
     agent_timed_out: bool
     diff_bytes: int
     check_results: list[dict] = dataclasses.field(default_factory=list)
+    # None preserves old snapshots without inventing an execution outcome.
+    agent_exit_code: int | None = None
+    artifact_passed: bool | None = None
+    artifact_grade_reason: str | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -109,8 +113,9 @@ def run_trial(
         category=task.category,
         config_id=config.id,
         trial=trial,
-        passed=graded.passed,
-        grade_reason=graded.reason,
+        passed=graded.passed and agent.exit_code == 0 and not agent.timed_out,
+        grade_reason=("agent_timed_out" if agent.timed_out else
+                      "agent_exited_nonzero" if agent.exit_code != 0 else graded.reason),
         cost_usd=config.cost.cost_usd(
             agent.cost_usd,
             agent.input_tokens,
@@ -121,6 +126,9 @@ def run_trial(
         agent_timed_out=agent.timed_out,
         diff_bytes=len(diff.encode()),
         check_results=[{k: v for k, v in c.items() if k != "output"} for c in graded.checks],
+        agent_exit_code=agent.exit_code,
+        artifact_passed=graded.passed,
+        artifact_grade_reason=graded.reason,
     )
     pending = out_dir / "result.json.tmp"
     pending.write_text(json.dumps(result.to_dict(), indent=2) + "\n")
