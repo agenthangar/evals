@@ -20,6 +20,22 @@ artificial complexity solely to make modern models fail. If all contenders solve
 an important routine task, the result can still inform cost and latency choices.
 Retain enough fresh tasks to detect regressions after prompt/tool changes.
 
+When reduced tasks saturate, look for real work that crosses a meaningful boundary:
+state that must survive a restart, concurrent requests that must not duplicate
+effects, migrations that preserve user choices, or an API and UI that must agree
+with stored data. File count and patch size alone do not establish difficulty.
+Capture the historical pre-change tree and preserve the interacting modules;
+replacing a working algorithm with a one-line bypass can turn a substantial
+incident into a trivial replay. Document every extraction change and omitted
+integration boundary.
+
+Keep discovery, capture and calibration as separate admission states. A candidate
+card should link the original request, exact starting/fix commits, proposed
+acceptance behavior, independent outcome checks, plausible incomplete fixes and
+remaining environment work. Only add it to the scored suite after the reference
+and deliberately flawed implementations calibrate. Group variants of the same
+incident when interpreting results.
+
 ## Review the evaluator
 
 For each task, a reviewer should be able to answer:
@@ -46,6 +62,13 @@ tests cannot collide with evaluator class names. Check evidence relationships
 instead of incidental claim IDs. When prose is unconstrained, validate structured
 facts automatically and record a separate semantic review; capitalization and
 one preferred sentence are poor correctness criteria.
+
+Inspect the oracle's dependencies. A search over the candidate's own transition
+function cannot independently prove that those transitions are correct. Similarly,
+a database rollback does not undo external effects already applied. Use an
+independent model where feasible and specify partial-failure behavior explicitly;
+do not assume the historical fix is correct for a stronger, newly invented
+acceptance contract.
 
 For subjective artifacts, first check objective requirements, then have reviewers
 score anonymized outputs in randomized order. Use anchored dimensions such as
@@ -75,6 +98,10 @@ If the prompt leaves a tested requirement ambiguous, clarify the task contract
 and rerun that task for every compared configuration and repetition. Keep the
 earlier cohort as diagnostic evidence and disclose the new input version;
 regrading an old answer cannot measure performance on a newly clarified request.
+Until a policy disagreement is resolved, retain the strict grader result, record
+the dispute and exclude it from quality-ranking claims. A targeted retry of just
+one model is useful diagnostic evidence, but belongs in a separate snapshot and
+must not replace one cell of the earlier comparison.
 
 ## Keep comparisons fair
 
