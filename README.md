@@ -105,6 +105,8 @@ For deeper tasks, follow [incident discovery and qualification](docs/DISCOVERY.m
 produce private review leads, not difficulty scores. Excerpts are off by default.
 Use the [candidate review template](docs/templates/INCIDENT_REVIEW.md) to preserve
 real context, replay failed fixes, probe grader gaps, and record exclusions.
+For UI timing, replay and device behavior, use the
+[runtime evidence protocol](docs/RUNTIME_EVIDENCE.md) and its audit worksheet.
 
 ```sh
 bench --tasks ../private-benchmark/tasks validate
