@@ -71,7 +71,7 @@ def test_transitive_links_do_not_create_unbounded_episodes(fixture_repo):
                        env={**os.environ, 'GIT_AUTHOR_DATE': stamp, 'GIT_COMMITTER_DATE': stamp})
     result = incidents.discover(repo, window_days=14)
     for candidate in result['candidates']:
-        times = [datetime.fromisoformat(c['timestamp']) for c in candidate['commits']]
+        times = [datetime.fromisoformat(c['timestamp'].replace('Z', '+00:00')) for c in candidate['commits']]
         assert (max(times) - min(times)).days <= 14
     assert result['cross_episode_links']
     assert sum(len(c['commits']) for c in result['candidates']) + len(result['unlinked_commits']) == result['commits_scanned']
