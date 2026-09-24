@@ -5,6 +5,10 @@ Keep the boundaries that caused the original problem. Replace external effects
 with controllable adapters, while retaining real local persistence and HTTP or
 browser behavior when those are part of the acceptance contract.
 
+For loading feedback, responsiveness, replay or sensor ownership, use the
+[runtime evidence protocol](RUNTIME_EVIDENCE.md) to distinguish measured behavior
+from builds, internal flags and unavailable physical coverage.
+
 ## Freeze the contract before running models
 
 Record the original request and immutable before/after source revisions in your
