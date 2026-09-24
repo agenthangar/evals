@@ -158,7 +158,10 @@ def test_approval_wrapper_and_quoted_history_in_separate_blocks(tmp_path):
                message('assistant', [{'type': 'output_text', 'text': 'Implemented'}]),
                message('user', [
                    {'type': 'input_text', 'text': 'The following is the Codex agent history whose request action you are assessing.'},
-                   {'type': 'input_text', 'text': '>>> TRANSCRIPT START\n[1] user: Still broken. Try again.'}])]
+                   {'type': 'input_text', 'text': '>>> TRANSCRIPT START\n'},
+                   {'type': 'input_text', 'text': '[1] user: Still broken. Try again.'},
+                   {'type': 'input_text', 'text': '>>> TRANSCRIPT END'},
+                   {'type': 'input_text', 'text': 'Review the planned action.'}])]
     (tmp_path / 'split-approval.jsonl').write_text('\n'.join(json.dumps(r) for r in records))
     assert not struggles.discover(tmp_path, mode='all')['candidates']
 

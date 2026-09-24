@@ -34,8 +34,9 @@ SOURCES = ("codex", "claude", "generic")
 MODES = ("interactive", "automation", "benchmark", "unknown")
 
 _CODEX_REQUEST_MARKER = "## My request for Codex:"
+_APPROVAL_HISTORY_PREFIX = "The following is the Codex agent history whose request action you are assessing."
 _INJECTED_PREFIXES = (
-    "The following is the Codex agent history whose request action you are assessing.",
+    _APPROVAL_HISTORY_PREFIX,
     ">>> TRANSCRIPT START",
     "<recommended_plugins>",
     "<environment_context>",
@@ -169,6 +170,13 @@ def _extract_user_text(content, allowed_types: tuple[str, ...]) -> str:
     if isinstance(content, str):
         return _clean_user_text(content)
     if not isinstance(content, list):
+        return ""
+    # Approval reviews split their wrapper, delimiters, and each historical turn
+    # into separate blocks. The entire review is injected history, not new work.
+    if any(isinstance(block, dict) and block.get("type") in allowed_types
+           and isinstance(block.get("text"), str)
+           and block["text"].lstrip().lower().startswith(_APPROVAL_HISTORY_PREFIX.lower())
+           for block in content):
         return ""
     parts: list[str] = []
     for block in content:
