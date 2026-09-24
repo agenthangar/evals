@@ -143,6 +143,14 @@ def test_regression_check_request_is_not_a_report_but_real_correction_survives(t
     assert evidence[0]['signals'] == ['reported_unresolved', 'reported_regression']
 
 
+def test_quoted_approval_history_is_not_a_new_user_correction(tmp_path):
+    records = [{'role': 'user', 'content': 'Implement a feature'},
+               {'role': 'assistant', 'content': 'Implemented.'},
+               {'role': 'user', 'content': 'The following is the Codex agent history whose request action you are assessing.\n>>> TRANSCRIPT START\nUser: still broken, try again'}]
+    (tmp_path / 'approval.jsonl').write_text('\n'.join(json.dumps(r) for r in records))
+    assert not struggles.discover(tmp_path, mode='all')['candidates']
+
+
 def test_discovery_cli_returns_private_evidence_inventory(fixture_repo, tmp_path, capsys):
     assert main(['mine', 'incidents', str(fixture_repo['repo']), '--json']) == 0
     assert json.loads(capsys.readouterr().out)['privacy'] == 'local_private_inventory'

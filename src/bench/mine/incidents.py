@@ -44,8 +44,9 @@ def discover(repo: Path, limit: int = 200, lookback: int = 30,
                         'test_files': [p for p in files if patches.is_test_path(p)],
                         'link_paths': sorted(p for p in files if _link_path(p))})
     parent = list(range(len(commits)))
-    bounds = [(datetime.fromisoformat(c['timestamp']), datetime.fromisoformat(c['timestamp']), i, i)
-              for i, c in enumerate(commits)]
+    # Recent Git versions emit Z for UTC; Python 3.10 requires an explicit offset.
+    times = [datetime.fromisoformat(c['timestamp'].replace('Z', '+00:00')) for c in commits]
+    bounds = [(stamp, stamp, i, i) for i, stamp in enumerate(times)]
 
     def root(i):
         while parent[i] != i:
@@ -62,7 +63,7 @@ def discover(repo: Path, limit: int = 200, lookback: int = 30,
             previous = commits[earlier]
             if previous['parent'] is None:
                 continue  # Initial repository creation would link every later repair.
-            gap = (datetime.fromisoformat(current['timestamp']) - datetime.fromisoformat(previous['timestamp'])).total_seconds()
+            gap = (times[later] - times[earlier]).total_seconds()
             if gap < 0 or gap > window_days * 86400:
                 continue
             shared = sorted(set(current['link_paths']) & set(previous['link_paths']))
