@@ -36,6 +36,7 @@ MODES = ("interactive", "automation", "benchmark", "unknown")
 _CODEX_REQUEST_MARKER = "## My request for Codex:"
 _INJECTED_PREFIXES = (
     "The following is the Codex agent history whose request action you are assessing.",
+    ">>> TRANSCRIPT START",
     "<recommended_plugins>",
     "<environment_context>",
     "<permissions instructions>",
