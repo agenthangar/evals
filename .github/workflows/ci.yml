@@ -43,6 +43,9 @@ jobs:
           bench --configs examples/configs/script.yaml
           --runs /tmp/agenthangar-evals-demo
           report --snapshot demo
+      - run: >-
+          bench --runs /tmp/agenthangar-evals-demo
+          pilot-review --snapshot demo --require-signal --json
 
       - run: bench --tasks examples/quality-tasks audit
       - run: bench --tasks examples/quality-tasks smoke --repeat 2
