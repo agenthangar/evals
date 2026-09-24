@@ -25,7 +25,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from bench import quality
+from bench import quality, pilot
 from bench import __version__
 from bench import config as config_mod
 from bench import harness as harness_mod
@@ -34,7 +34,7 @@ from bench import runner as runner_mod
 from bench import smoke as smoke_mod
 from bench import task as task_mod
 from bench import workspace as workspace_mod
-from bench.mine import git_history, transcripts
+from bench.mine import git_history, transcripts, incidents, struggles
 
 
 def _load_tasks(tasks_dir: str) -> list[task_mod.Task]:
@@ -266,6 +266,45 @@ def cmd_mine_commits(args) -> int:
     return 0
 
 
+def cmd_mine_incidents(args) -> int:
+    result = incidents.discover(Path(args.repo), limit=args.limit, lookback=args.lookback,
+                                window_days=args.window_days, since=args.since)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Scanned {result['commits_scanned']} commits; {len(result['candidates'])} incident leads.")
+        for candidate in result['candidates']:
+            print(f"{candidate['id']}  {len(candidate['commits'])} linked commits  {candidate['commits'][-1]['subject']}")
+        print('Leads require source review; difficulty is unmeasured. Keep this inventory private. Use --json for evidence links.')
+    return 0
+
+
+def cmd_mine_struggles(args) -> int:
+    result = struggles.discover(Path(args.dir), source=None if args.source == 'all' else args.source,
+                                mode=args.mode, repo=Path(args.repo) if args.repo else None,
+                                since=args.since, include_excerpts=args.include_excerpts)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(f"Found {len(result['candidates'])} sessions with user-reported difficulty signals.")
+        for candidate in result['candidates']:
+            print(f"{candidate['id']}  {len(candidate['evidence'])} correction(s)  {candidate['path_relative_to_input']}")
+        print('Review the original turns; retry requests do not prove model difficulty. All output is private metadata.')
+    return 0
+
+
+def cmd_pilot_review(args) -> int:
+    result = pilot.review(Path(args.runs) / args.snapshot)
+    if args.json:
+        print(json.dumps(result, indent=2))
+    else:
+        for task in result['tasks']:
+            print(f"{task['task_id']}: {task['status']}")
+        print(result['next_step'])
+        print('Pilot observations do not establish a model ranking or automatically admit tasks.')
+    return 2 if args.require_signal and not result['observed_between_config_signal'] else 0
+
+
 def cmd_mine_scaffold(args) -> int:
     out = git_history.scaffold(
         Path(args.repo), args.commit, Path(args.out), category=args.category
@@ -333,6 +372,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("report", help="aggregate a snapshot into report.md + routing.yaml")
     p.add_argument("--snapshot", type=_snapshot_name, required=True)
 
+    p = sub.add_parser('pilot-review', help='inspect saturation, execution problems and variation before a full comparison')
+    p.add_argument('--snapshot', type=_snapshot_name, required=True)
+    p.add_argument('--json', action='store_true')
+    p.add_argument('--require-signal', action='store_true', help='exit 2 without observed between-config variation; this is not an admission proof')
+
     p = sub.add_parser("mine", help="mine tasks and task distribution from your history")
     mine_sub = p.add_subparsers(dest="mine_command", required=True)
     q = mine_sub.add_parser("commits", help="list candidate commits in a repo")
@@ -341,6 +385,21 @@ def main(argv: list[str] | None = None) -> int:
     q.add_argument("--include-untested", action="store_true", help="include work needing a manually authored grader")
     q.add_argument("--since", help="only commits since this date, e.g. 2026-09-01")
     q.add_argument("--json", action="store_true", help="machine-readable candidate inventory")
+    q = mine_sub.add_parser('incidents', help='find linked repair histories, including broad changes and work without tests')
+    q.add_argument('repo')
+    q.add_argument('--limit', type=_positive_int, default=200)
+    q.add_argument('--lookback', type=_positive_int, default=30)
+    q.add_argument('--window-days', type=_positive_int, default=14)
+    q.add_argument('--since')
+    q.add_argument('--json', action='store_true')
+    q = mine_sub.add_parser('struggles', help='find user corrections in local transcripts; private metadata by default')
+    q.add_argument('dir')
+    q.add_argument('--source', choices=('all', *transcripts.SOURCES), default='all')
+    q.add_argument('--mode', choices=('all', *transcripts.MODES), default='interactive')
+    q.add_argument('--repo', help='restrict to sessions whose cwd is inside this repository')
+    q.add_argument('--since', help='ISO date; sessions with unknown dates are excluded')
+    q.add_argument('--include-excerpts', action='store_true', help='include private user text excerpts in the inventory')
+    q.add_argument('--json', action='store_true')
     q = mine_sub.add_parser("scaffold", help="scaffold a task directory from a commit")
     q.add_argument("repo")
     q.add_argument("commit")
@@ -369,12 +428,15 @@ def main(argv: list[str] | None = None) -> int:
         "smoke": cmd_smoke,
         "run": cmd_run,
         "report": cmd_report,
+        "pilot-review": cmd_pilot_review,
     }
     if args.command == "mine":
         handlers = {
             "commits": cmd_mine_commits,
             "scaffold": cmd_mine_scaffold,
             "transcripts": cmd_mine_transcripts,
+            "incidents": cmd_mine_incidents,
+            "struggles": cmd_mine_struggles,
         }
         handler = handlers[args.mine_command]
     else:

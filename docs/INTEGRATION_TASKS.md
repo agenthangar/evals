@@ -20,6 +20,14 @@ logic as candidate work. Ensure the unchanged scaffold builds and fails on
 behavior, rather than only on missing symbols. Give every model the same public
 API, environment instructions and scope.
 
+Scaffolding can also remove the work you meant to measure: discovering the API,
+choosing a state model, tracing an existing call chain, or diagnosing timing.
+Prefer the original source tree and existing interfaces for incident tasks.
+Record each removed boundary in an extraction-loss ledger and call a reduced
+exercise a reduced exercise. A fake that makes a physical rendering or camera
+problem disappear is not a faithful automatic evaluation of that problem; keep
+it in a device/manual lane until you can observe the original failure.
+
 Examples of precise acceptance contracts:
 
 | Boundary | Observable contract | Plausible incomplete implementation |
@@ -100,7 +108,9 @@ diff, and grade that diff in another fresh checkout. Check that generated
 clients, build caches, temporary databases and candidate-authored tests neither
 pollute the patch nor collide with held-out tests.
 
-Then run a small real model access smoke test before the scored attempts. Freeze
+Then run a small real model access smoke test and a matched difficulty pilot
+before expanding to the full comparison. See [discovery](DISCOVERY.md) for the
+pilot review and fresh-holdout workflow. Freeze
 all task contracts, model IDs, harness arguments, tool versions, effort and time
 budgets. If tasks must run in separate cohorts, record their windows and preserve
 the same per-task conditions for every model; disclose the cohorts when combining

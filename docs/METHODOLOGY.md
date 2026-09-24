@@ -55,6 +55,14 @@ incident when interpreting results.
 
 ## Review the evaluator
 
+Use [incident discovery and qualification](DISCOVERY.md) to make this process
+repeatable. Keep discovery leads, captured tasks, qualified graders, pilots and
+fresh holdouts distinct. A large number of successful calibration runs proves
+only that the chosen controls were caught. Look specifically for plausible wrong
+patches that pass the existing grader, then preserve the escape and the assertion
+that detects it. Check unchanged model artifacts too; finding a grader hole does
+not imply that any model exploited it or produced an incorrect implementation.
+
 For each task, a reviewer should be able to answer:
 
 | Question | Evidence |
