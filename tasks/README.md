@@ -1,5 +1,9 @@
 # Task authoring
 
+For your first benchmark, start with `bench init`, `bench add`, `bench setup`
+and `bench compare` in the [quick start](../README.md). This guide covers custom
+contracts and stronger grader review when you need them.
+
 Keep real task packs in a private repository. A task is a reproducible starting
 state, a request that makes sense on its own, and an independently reviewed
 success contract. The grader is at least as important as the prompt.
@@ -9,6 +13,7 @@ success contract. The grader is at least as important as the prompt.
 ```yaml
 id: repair-report
 category: reporting
+must_pass: true
 repo:
   url: repo.bundle
   base_commit: <full immutable Git hash>
@@ -46,6 +51,12 @@ evaluation:
   limitations:
     - Does not test the browser, database permissions or deployment.
 ```
+
+`must_pass` is optional and defaults to false. The simple comparison requires
+every attempt on these tasks to pass before a setup meets your quality bar.
+This flag is frozen with the task in each snapshot. The advanced `report`
+command retains its separate statistical routing policy; use `compare` for the
+must-pass decision report.
 
 `tests.command` and `tests.timeout_seconds` remain supported for old tasks, in
 place of `tests.checks`; its check ID is `tests`. Do not specify both. For Docker,

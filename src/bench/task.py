@@ -46,6 +46,7 @@ class Task:
     provenance: dict = dataclasses.field(default_factory=dict)
     limitations: list[str] = dataclasses.field(default_factory=list)
     protected_paths: list[str] = dataclasses.field(default_factory=list)
+    must_pass: bool = False
 
     @property
     def grading_checks(self) -> list[Check]:
@@ -160,12 +161,15 @@ class Task:
         for limitation in limitations:
             string(limitation, "limitation")
         protected = [relative(p, "protected path") for p in sequence(tests.get("protected_paths", []), "protected_paths")]
+        must_pass = meta.get("must_pass", False)
+        if not isinstance(must_pass, bool):
+            fail("must_pass must be true or false")
         return cls(task_id, string(required(meta, "category"), "category"), url,
             string(required(repo, "base_commit", "repo."), "repo.base_commit"), prompt,
             read_file(required(tests, "patch_file", "tests."), "tests patch"), command,
             timeout, runner, image, read_file(required(solution, "patch_file", "solution."), "solution patch"),
             task_dir, checks, controls, criteria,
-            mapping(meta.get("provenance", {}), "provenance"), limitations, protected)
+            mapping(meta.get("provenance", {}), "provenance"), limitations, protected, must_pass)
 
 
 def load_all(tasks_dir: Path) -> list[Task]:

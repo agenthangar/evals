@@ -38,6 +38,15 @@ jobs:
           bench --tasks examples/tasks
           --configs examples/configs/script.yaml
           --runs /tmp/agenthangar-evals-demo
+          compare --snapshot quickstart
+      - run: >-
+          bench --configs examples/configs/script.yaml
+          --runs /tmp/agenthangar-evals-demo
+          compare --snapshot quickstart --report-only
+      - run: >-
+          bench --tasks examples/tasks
+          --configs examples/configs/script.yaml
+          --runs /tmp/agenthangar-evals-demo
           run --snapshot demo --trials 1
       - run: >-
           bench --configs examples/configs/script.yaml

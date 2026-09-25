@@ -97,3 +97,12 @@ def test_cost_model_precedence():
     assert flat.cost_usd(99.0, 1, 1) == 0.5
 
     assert CostModel(mode="per_token").cost_usd(None, 10, 10) is None
+
+
+def test_cost_source_tracks_actual_fallback():
+    model = CostModel(mode="harness_reported", input_per_mtok=2, output_per_mtok=10, flat_usd=1)
+    assert model.source(0.2, 100, 100) == "harness_reported"
+    assert model.source(None, 100, 100) == "token_estimate"
+    assert model.source(None, None, None) == "flat_estimate"
+    assert CostModel().source(None, None, None) == "unknown"
+    assert CostModel(mode="flat_per_run", flat_usd=1).source(0.2, 100, 100) == "flat_estimate"

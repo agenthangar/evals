@@ -78,6 +78,7 @@ class TrialResult:
     agent_exit_code: int | None = None
     artifact_passed: bool | None = None
     artifact_grade_reason: str | None = None
+    cost_source: str = "unknown"
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -97,15 +98,15 @@ def run_trial(
         workdir, base = workspace.agent_checkout(task.repo_url, task.base_commit, Path(tmp) / "repo")
         agent = adapter.run(config, workdir, task.prompt, timeout=agent_timeout)
         diff = workspace.capture_diff(workdir, base)
+        # Keep completed work inspectable even if the grader cannot start.
+        (out_dir / "diff.patch").write_text(diff)
+        (out_dir / "agent.log").write_text(
+            f"$ {config.harness} (model={config.model})\n"
+            f"exit={agent.exit_code} timed_out={agent.timed_out} "
+            f"duration={agent.duration_seconds:.1f}s\n"
+            f"--- stdout ---\n{agent.stdout}\n--- stderr ---\n{agent.stderr}\n"
+        )
         graded = grade.grade_diff(task, diff)
-
-    (out_dir / "diff.patch").write_text(diff)
-    (out_dir / "agent.log").write_text(
-        f"$ {config.harness} (model={config.model})\n"
-        f"exit={agent.exit_code} timed_out={agent.timed_out} "
-        f"duration={agent.duration_seconds:.1f}s\n"
-        f"--- stdout ---\n{agent.stdout}\n--- stderr ---\n{agent.stderr}\n"
-    )
     (out_dir / "tests.log").write_text(graded.output)
 
     result = TrialResult(
@@ -129,6 +130,7 @@ def run_trial(
         agent_exit_code=agent.exit_code,
         artifact_passed=graded.passed,
         artifact_grade_reason=graded.reason,
+        cost_source=config.cost.source(agent.cost_usd, agent.input_tokens, agent.output_tokens),
     )
     pending = out_dir / "result.json.tmp"
     pending.write_text(json.dumps(result.to_dict(), indent=2) + "\n")
@@ -190,7 +192,7 @@ def run_matrix(
     for task in sorted(selected, key=lambda t: t.id):
         contract = dataclasses.asdict(task)
         contract.pop("path")
-        task_contracts.append({"id": task.id, "sha256": _digest(contract)})
+        task_contracts.append({"id": task.id, "sha256": _digest(contract), "must_pass": task.must_pass})
     config_contracts = []
     for config in sorted(configs, key=lambda c: c.id):
         config_contracts.append({"id": config.id, "sha256": _config_fingerprint(config),
