@@ -1,207 +1,143 @@
 # AgentHangar Evals
 
-**Find the best model and agent configuration for your own day-to-day work.**
-Build a private evaluation set from tasks you actually delegate, verify that its
-graders detect meaningful failures, and compare configurations on the same work.
-The output is evidence for your choices, not a worldwide model leaderboard.
+**Find a cost-efficient coding setup that works on your own tasks.**
 
-This repository contains the generic engine, authoring workflow and synthetic
-teaching examples. Your task history, source snapshots, reference solutions,
-held-out tests, configurations and results belong in a separate private repo.
+Turn work you have already done into a private benchmark. Replay the same tasks
+with different models, harnesses, tools or settings, then compare success, cost,
+time and the actual failures.
 
-## Start with the tasks and their evaluation
-
-1. **Sample your work.** Review recent requests, fixes, features and incidents.
-   Include frequent routine work and infrequent costly mistakes. Record why each
-   task matters; don't select tasks because a particular model wins them.
-2. **Reconstruct a fair starting point.** Give the agent the information you had
-   before solving the task, a pinned source tree and a behavioral specification.
-3. **Define success before running models.** Map each requirement to an
-   executable check, with boundary cases and regression checks. Test outcomes,
-   not whether the diff resembles a reference implementation.
-4. **Evaluate the evaluator.** The reference solution must pass, the starting
-   state must fail, and plausible incomplete solutions must fail the intended
-   checks. Repeat this calibration to catch obvious instability.
-5. **Pilot task difficulty.** Run a small matched matrix. All-pass results may
-   reveal useful routine work, lost context, or weak checks; they do not establish
-   a demanding benchmark. Review failures before selecting fresh incident holdouts.
-6. **Run a frozen comparison.** Hold tasks, tools, effort, environment and budget
-   fixed. Inspect failures and uncertainty before changing your workflow.
-
-Read [task authoring](tasks/README.md) and [evaluation methodology](docs/METHODOLOGY.md)
-before building a benchmark you plan to trust. A valid YAML file is not evidence
-that a task or grader is good.
+A task has three parts: **the code before the work, the request, and checks for
+success**. The framework verifies that the historical fix passes and the starting
+state fails before running agents.
 
 ## Install
 
-Requires Python 3.10+ and Git. From a checkout:
+The guided MVP is available from this source checkout. Requires Python 3.10+ and Git:
 
 ```sh
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
-python -m pytest
-bench --version
+bench --help
 ```
 
-The last published release can also be installed with
-`uv tool install 'git+https://github.com/AgentHangar/evals.git@v1.0.1'`.
-The quality-contract features documented here are in the 1.1.0 source tree;
-use a reviewed commit SHA to pin that version until its release tag is published.
+For model runs, install and sign into the CLI you want to evaluate: `codex`,
+`claude`, or `cursor-agent`. Use model IDs available in your own account.
 
-Real runs require the corresponding logged-in CLI: `codex`, `claude`, or
-`cursor-agent`. Docker is needed for tasks using Docker grading.
+## Create your benchmark
+
+```sh
+bench init ~/my-benchmark
+cd ~/my-benchmark
+bench add ~/code/my-project
+```
+
+`bench add` shows recent changes and guides you through:
+
+1. Selecting a past task and giving it a short name.
+2. Describing what needed doing, without giving away the solution.
+3. Providing a command that checks success.
+4. Marking it **must-pass** if an alternative must solve it before you would switch.
+
+It extracts the starting revision, source change and test change, then checks the
+historical solution and starting state in fresh local checkouts. Your original
+repository is unchanged. Install the dependencies required by those checkouts,
+or include setup in the test command. If a commit has no tests, supply a test
+patch against its starting revision; the guide asks for its path.
+
+Start with **5–10 representative tasks**: bugs, features, migrations or refactors
+you actually delegate. Review whether the checks cover the request. Passing the
+historical fix and rejecting the starting state does not prove complete coverage.
+The guided flow handles individual non-merge commits; use the
+[authoring guide](tasks/README.md) for changes spanning multiple commits.
+
+## Add setups
+
+```sh
+bench setup  # Add your current setup first
+bench setup  # Add an alternative
+```
+
+A **setup** is a model, harness and settings. The guide asks for the model ID,
+optional CLI flags for effort or tools, and how to measure cost. The first setup
+is your current baseline; use `bench setup --current` when adding a new baseline.
+
+Cost can come from reported usage, your token prices, or a flat estimate per
+attempt. Missing cost stays unknown. Reported usage cost is not your subscription
+bill; token and flat costs are estimates. Use the same cost basis for alternatives.
+For harnesses that report tokens but no dollar amount, choose token prices.
+
+To evaluate a model, keep the harness and tools fixed. To evaluate a tool, keep
+the model and harness fixed. You can also compare complete everyday setups;
+that result describes the whole setup. Edit `configs/products.yaml` to adjust
+settings, or use `bench setup --help` for noninteractive flags.
+
+## Compare and inspect
+
+```sh
+bench compare --snapshot first
+```
+
+This checks prerequisites and task checks, runs one attempt per task and setup,
+and writes `runs/first/comparison.md` plus a machine-readable `comparison.json`.
+It shows:
+
+- Tasks and attempts passed.
+- Total cost, including failed attempts, and cost per successful attempt.
+- Median agent time and the source of the cost figures.
+- Failed attempts with links to checks, patches and agent logs.
+
+The quality bar is simple: **pass every must-pass task and at least as many tasks
+as your current setup**. At least one task must pass. Among setups meeting that
+bar with complete cost information, the report identifies the lowest observed
+cost per successful attempt. It does not change your routing automatically.
+
+Inspect *which* tasks failed before switching: equal totals can hide different
+failures. A small sample is a useful starting point, not proof of a general winner.
+Repeat a promising comparison, and include fresh tasks before relying on it:
+
+```sh
+bench compare --snapshot repeated --trials 3
+bench compare --snapshot repeated --report-only  # No agents or tests run
+```
+
+With repetitions, a task counts as passed only if every attempt succeeds. Resume
+an interrupted run with the same command. Completed attempts are reused; use a
+new snapshot name after changing tasks, setups or trial counts.
 
 ## Try it without a model account
 
-The original calculator fixture exercises the whole pipeline deterministically:
+From this repository, a deterministic example runs a known-good patch against a
+no-op setup. It exercises the full comparison flow without model calls:
 
 ```sh
-bench --tasks examples/tasks --configs examples/configs/script.yaml doctor
-bench --tasks examples/tasks smoke
 bench --tasks examples/tasks --configs examples/configs/script.yaml \
-  --runs /tmp/agenthangar-demo run --snapshot demo --trials 1
-bench --configs examples/configs/script.yaml \
-  --runs /tmp/agenthangar-demo report --snapshot demo
-bench --runs /tmp/agenthangar-demo pilot-review --snapshot demo --json
+  --runs /tmp/agenthangar-demo compare --snapshot demo
 ```
 
-Two richer, standard-library-only examples show how to evaluate overlapping
-intervals and a settings migration that must preserve user choices:
+The public fixtures teach the workflow. Their solutions are public, so they are
+not a model-ranking dataset.
 
-```sh
-bench --tasks examples/quality-tasks validate
-bench --tasks examples/quality-tasks audit
-bench --tasks examples/quality-tasks smoke --repeat 2
-```
+## Keep your work private
 
-Each has behavioral checks and two plausible wrong solutions. Their answers are
-public, so they are teaching fixtures, not a model-ranking dataset.
+Create real benchmarks in a separate private directory or repository. This repo
+contains the generic framework and fictional examples. Keep real requests, source
+patches, solutions and results in your own pack. Source repositories must remain
+available at their recorded locations; a private Git bundle can make a pack portable.
 
-## Build a private task pack
+Agents and local checks run with your user permissions. Removing solution history
+from a checkout is not a security boundary. Enforced held-out secrecy requires a
+separate agent environment with only approved inputs. See [security](SECURITY.md).
 
-Survey your work locally, then discover recent candidates:
+## When you need more
 
-```sh
-bench mine transcripts ~/.codex/sessions --source codex --mode interactive
-bench mine transcripts ~/.claude/projects --source claude --mode interactive
-bench mine commits ~/code/project --since 2026-09-01 --json
-bench mine commits ~/code/project --since 2026-09-01 --include-untested --json
-bench mine incidents ~/code/project --since 2026-09-01 --json
-bench mine struggles ~/.codex/sessions --source codex --mode interactive --json
-bench mine scaffold ~/code/project <fix-sha> ../private-benchmark/tasks/task-id
-```
+The existing advanced commands remain available: `mine`, `validate`, `audit`,
+`smoke`, `doctor`, `run`, `report` and `pilot-review`.
 
-Mining lists candidates and review flags; it does not certify task quality.
-`--include-untested` makes work needing a manually written grader visible rather
-than excluding it from your workload. Scaffolding requires a commit with tests,
-splits source/test patches, and creates a prompt stub and review checklist.
-Finish the specification, environment and grader by hand. For features without
-existing tests, build the task contract manually using the examples.
+- [Task authoring](tasks/README.md): custom checks, Docker grading and negative controls.
+- [Evaluation methodology](docs/METHODOLOGY.md): grader review, repeated trials and uncertainty.
+- [Incident discovery](docs/DISCOVERY.md): finding deeper work in Git and transcripts.
+- [Integration tasks](docs/INTEGRATION_TASKS.md) and [runtime evidence](docs/RUNTIME_EVIDENCE.md): broader coverage.
+- [Contributing](CONTRIBUTING.md): develop and test the framework.
 
-For deeper tasks, follow [incident discovery and qualification](docs/DISCOVERY.md).
-`incidents` links nearby repairs without excluding broad or untested changes;
-`struggles` retrieves visible user corrections after assistant replies. Both
-produce private review leads, not difficulty scores. Excerpts are off by default.
-Use the [candidate review template](docs/templates/INCIDENT_REVIEW.md) to preserve
-real context, replay failed fixes, probe grader gaps, and record exclusions.
-For UI timing, replay and device behavior, use the
-[runtime evidence protocol](docs/RUNTIME_EVIDENCE.md) and its audit worksheet.
-
-```sh
-bench --tasks ../private-benchmark/tasks validate
-bench --tasks ../private-benchmark/tasks audit --json
-bench --tasks ../private-benchmark/tasks smoke --repeat 2
-```
-
-Use a private Git bundle when the task needs a portable source snapshot.
-Relative `repo.url` values resolve from the task directory. `base_commit` must be
-a full immutable Git hash. Never bundle credentials or unrelated production data.
-
-## Compare current configurations
-
-Copy [configs/products.example.yaml](configs/products.example.yaml) to your private
-pack. It contains GPT-6 Astra and current Claude candidates verified on 2026-09-22,
-with explicit effort settings and source links. Model availability is specific to
-your account; `doctor` checks executables, not model entitlement or live inference.
-Keep your incumbent and cost basis explicit. API-equivalent cost, subscription
-marginal cost and invoice cost are different measurements.
-
-```sh
-bench --tasks ../private-benchmark/tasks \
-  --configs ../private-benchmark/configs/products.yaml doctor
-bench --tasks ../private-benchmark/tasks \
-  --configs ../private-benchmark/configs/products.yaml \
-  --runs ../private-benchmark/runs \
-  run --snapshot september-comparison --trials 3 --strict
-bench --configs ../private-benchmark/configs/products.yaml \
-  --runs ../private-benchmark/runs report --snapshot september-comparison
-```
-
-`--strict` requires the authoring audit and two rounds of grader calibration.
-Legacy tasks still run without `--strict`, but lack those quality assurances.
-Tasks/configurations are interleaved deterministically to limit order effects.
-
-Before that full run, use a smaller pilot snapshot and inspect it with
-`bench --runs ../private-benchmark/runs pilot-review --snapshot pilot --json`.
-The optional `--require-signal` exits with status 2 when no between-configuration
-pass-count difference is observed or execution/grading problems remain. It is a
-diagnostic gate, not proof of difficulty, statistical significance or a winner.
-Routine tasks may be valuable even when this gate does not pass.
-
-The agent gets a fresh Git repository containing only the starting tree, with
-no remote or later solution history. Its resulting diff is replayed in a new
-grading checkout. Held-out and explicitly protected paths are restored before
-tests are applied. Each check's result and output are recorded; every required
-check must pass for a task to pass.
-
-Snapshots include input fingerprints, engine fingerprint, Python/platform and
-agent CLI versions. Resuming refuses changed tasks, grading contracts, configs,
-trial counts or budgets. Use a new snapshot after a change. Task authors must
-also pin and record their Node/Swift/toolchain versions, dependency locks, images
-and external inputs; the manifest cannot detect every host dependency change.
-
-## Interpret results cautiously
-
-Reports contain attempt pass rates, cost per solve, distinct tasks solved on
-every attempt, per-category comparisons and `routing.yaml`. Comparisons require
-matched task/trial coverage and use **distinct reliably solved tasks**, not
-repeated attempts as independent evidence. Fewer than six distinct tasks in a
-category yields `insufficient_data`; six is a floor, not a recommended sample size.
-
-`roughly_equal` requires the full approximate 95% difference interval inside
-±10 percentage points. A wide interval is `inconclusive`. Only demonstrated
-better/equivalent candidates with complete comparable cost data can replace the
-incumbent automatically. Falling back to the incumbent is not proof it is good
-enough. Inspect critical failure modes and choose your own acceptance threshold.
-
-No runs means no model recommendation. Calibration proves specific graders
-caught specific controls; it does not establish model difficulty, representative
-coverage or a trustworthy winner. Related tasks and tasks used to tune prompts
-can inflate confidence; keep a fresh holdout and review dependence.
-
-## Security and privacy
-
-The harnesses run unattended with the permissions of the host user. Removing
-Git history prevents an accidental local answer shortcut; it is **not an access
-boundary**. Same-user agents may still access the task pack, original repository,
-credentials or network. For credible held-out evaluation, run the agent in a
-separate VM/container/user with only the starting tree and approved tools mounted,
-and keep grading data outside that environment. Docker grading alone does not
-isolate the agent. See [SECURITY.md](SECURITY.md).
-
-Transcript surveying stays local. Keep all real tasks and results in your private
-pack, and review source trees, bundle contents and diffs before sharing artifacts.
-
-## Layout
-
-```text
-src/bench/                 discovery → validation → audit → calibration → run → report
-examples/tasks/            tiny deterministic pipeline demonstration
-examples/quality-tasks/    synthetic contracts with negative controls
-configs/products.example.yaml
-tasks/README.md           task authoring guide (real tasks are gitignored)
-docs/METHODOLOGY.md         selection, grader review and interpretation
-```
-
-MIT. Contributions should improve the generic framework or use fictional fixtures.
+MIT. Built for personal and team decisions on relevant work.

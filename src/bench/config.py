@@ -22,6 +22,7 @@ snapshot::
 from __future__ import annotations
 
 import dataclasses
+import math
 import re
 from pathlib import Path
 
@@ -42,6 +43,16 @@ class CostModel:
     cached_input_per_mtok: float | None = None
     output_per_mtok: float | None = None
     flat_usd: float | None = None
+
+    def source(self, harness_cost_usd, input_tokens, output_tokens) -> str:
+        """Describe the amount selected by cost_usd without calling it an invoice."""
+        if self.mode == "harness_reported" and harness_cost_usd is not None:
+            return "harness_reported"
+        if (self.mode != "flat_per_run" and input_tokens is not None
+                and output_tokens is not None and self.input_per_mtok is not None
+                and self.output_per_mtok is not None):
+            return "token_estimate"
+        return "flat_estimate" if self.flat_usd is not None else "unknown"
 
     def cost_usd(
         self,
@@ -121,11 +132,20 @@ def load(path: Path) -> BenchConfig:
             if not entry.get(key):
                 raise ConfigError(f"{path}: configs[{i}] missing {key!r}")
         cost_raw = entry.get("cost") or {}
+        if not isinstance(cost_raw, dict):
+            raise ConfigError(f"{path}: configs[{i}].cost must be a mapping")
         mode = cost_raw.get("mode", "harness_reported")
         if mode not in COST_MODES:
             raise ConfigError(
                 f"{path}: configs[{i}].cost.mode must be one of {COST_MODES}, got {mode!r}"
             )
+        for key in ("input_per_mtok", "cached_input_per_mtok", "output_per_mtok", "flat_usd"):
+            value = cost_raw.get(key)
+            if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))
+                                      or not math.isfinite(value) or value < 0):
+                raise ConfigError(f"{path}: configs[{i}].cost.{key} must be a finite nonnegative number")
+        if not isinstance(entry.get("extra_args", []), list):
+            raise ConfigError(f"{path}: configs[{i}].extra_args must be a list")
         configs.append(
             ProductConfig(
                 id=str(entry["id"]),

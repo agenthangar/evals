@@ -9,7 +9,14 @@ Install the development dependencies and run:
 python -m pytest
 bench --tasks examples/tasks validate
 bench --tasks examples/tasks smoke
+bench --tasks examples/tasks --configs examples/configs/script.yaml --runs /tmp/bench-demo compare --snapshot demo
 ```
+
+Keep the primary journey short: `init` → `add` → `setup` → `compare`. The MVP
+handles Git-based coding tasks with executable checks. Changes to that flow
+should include a deterministic end-to-end test with fictional work, actionable
+errors, and a comparison whose failures can be inspected. Keep advanced
+evaluation options out of the guided path unless they are necessary to finish it.
 
 Use synthetic repositories and data in tests and examples. Never contribute a
 real transcript, private task, held-out test, known-good solution, account

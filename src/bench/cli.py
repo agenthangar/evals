@@ -1,17 +1,7 @@
-"""Command-line entry point.
+"""Create a private benchmark: init -> add past tasks -> setup -> compare.
 
-Typical lifecycle::
-
-    bench mine transcripts ~/.claude/projects --source claude --mode interactive
-    bench mine transcripts ~/.codex/sessions --source codex --mode interactive
-                                                    # learn your task mix
-    bench mine commits ~/code/myrepo               # find candidate commits
-    bench mine scaffold ~/code/myrepo <sha> tasks/fix-foo
-    # ... hand-edit prompt.md, task.yaml (test command, image) ...
-    bench validate                                 # tasks are well-formed
-    bench smoke                                    # tasks detect pass AND fail
-    bench run --snapshot 2026-07-sonnet5-launch    # the expensive part
-    bench report --snapshot 2026-07-sonnet5-launch # report.md + routing.yaml
+The lower-level authoring, discovery and reporting commands remain available
+for users who need more control over their evaluation.
 """
 
 from __future__ import annotations
@@ -21,11 +11,12 @@ import json
 import dataclasses
 import platform
 import re
+import shlex
 import shutil
 import sys
 from pathlib import Path
 
-from bench import quality, pilot
+from bench import quality, pilot, onboarding, comparison
 from bench import __version__
 from bench import config as config_mod
 from bench import harness as harness_mod
@@ -168,7 +159,8 @@ def cmd_run(args) -> int:
         task_ids=None,
         agent_timeout=args.agent_timeout,
     )
-    print(f"\nresults in {snapshot_dir}; next: bench report --snapshot {args.snapshot}")
+    if getattr(args, "command", "run") != "compare":
+        print(f"\nresults in {snapshot_dir}; next: bench report --snapshot {args.snapshot}")
     return 0
 
 
@@ -189,6 +181,40 @@ def cmd_report(args) -> int:
     )
     print(markdown)
     print(f"\nwrote {snapshot_dir / 'report.md'} and {snapshot_dir / 'routing.yaml'}")
+    return 0
+
+
+def cmd_compare(args) -> int:
+    bench_config = config_mod.load(Path(args.configs))
+    snapshot_dir = Path(args.runs) / args.snapshot
+    if not args.report_only:
+        tasks = _select_tasks(_load_tasks(args.tasks), args.task)
+        configs = _select_configs(bench_config, args.config)
+        if len(configs) < 2 or bench_config.incumbent not in {c.id for c in configs}:
+            raise runner_mod.RunError("compare needs your current setup and at least one alternative; add one with bench setup")
+        print(f"Comparing {len(tasks)} tasks × {len(configs)} setups × {args.trials} attempt(s) "
+              f"= {len(tasks) * len(configs) * args.trials} runs.\n"
+              f"Current setup: {bench_config.incumbent}. Quality bar: match its tasks passed and pass all must-pass tasks.\n"
+              "Checking prerequisites and task checks before running agents…", flush=True)
+        if cmd_doctor(args):
+            return 1
+        if cmd_run(args):
+            return 1
+    runner_mod.verify_report_config(snapshot_dir, bench_config)
+    manifest_path = snapshot_dir / "manifest.json"
+    if not manifest_path.is_file():
+        raise runner_mod.RunError("comparison needs a frozen snapshot; run bench compare without --report-only first")
+    manifest = json.loads(manifest_path.read_text())
+    results = runner_mod.load_results(snapshot_dir)
+    must_pass = [t["id"] for t in manifest["tasks"] if t.get("must_pass", False)]
+    summary = comparison.summarize(results, bench_config, must_pass)
+    markdown = comparison.render(summary, results, args.snapshot)
+    (snapshot_dir / "comparison.md").write_text(markdown)
+    (snapshot_dir / "comparison.json").write_text(json.dumps(summary, indent=2) + "\n")
+    print(markdown)
+    print(f"\nSaved {snapshot_dir / 'comparison.md'}. Reopen without running agents:\n"
+          f"  bench --configs {shlex.quote(args.configs)} --runs {shlex.quote(args.runs)} "
+          f"compare --snapshot {args.snapshot} --report-only")
     return 0
 
 
@@ -335,7 +361,9 @@ def cmd_mine_transcripts(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="bench",
-        description="Private coding-agent benchmarks for individuals and teams",
+        description="Find the best setup for your work: past tasks → checks → compare cost and success.",
+        epilog="Start here: bench init ~/my-benchmark. Inside it: bench add, bench setup, bench compare. "
+               "The remaining commands support advanced authoring and analysis.",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--tasks", default="tasks", help="tasks directory (default: tasks)")
@@ -344,6 +372,41 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--runs", default="runs", help="runs output directory")
     sub = parser.add_subparsers(dest="command", required=True)
+
+    p = sub.add_parser("init", help="create a private benchmark directory")
+    p.add_argument("directory")
+
+    p = sub.add_parser("add", help="turn a past Git change into a task, with guided input")
+    p.add_argument("repo", help="repository containing the past work")
+    p.add_argument("commit", nargs="?", help="fix commit; omit to choose from recent changes")
+    p.add_argument("--id", help="short task name")
+    p.add_argument("--prompt-file", help="original request rewritten without the solution")
+    p.add_argument("--test-command", help="command that checks success in a fresh local checkout")
+    p.add_argument("--tests-patch", help="supply held-out tests when the commit has no suitable tests")
+    p.add_argument("--category", default="coding", help="optional grouping (default: coding)")
+    p.add_argument("--must-pass", action=argparse.BooleanOptionalAction, default=None,
+                   help="require this task to pass before considering a setup")
+
+    p = sub.add_parser("setup", help="add a model, harness and settings to compare")
+    p.add_argument("--id", help="name such as current or cheaper")
+    p.add_argument("--harness", choices=("codex", "claude-code", "cursor"))
+    p.add_argument("--model", help="exact model ID available in your account")
+    p.add_argument("--extra-args", help="quoted harness flags for tools or effort; use --extra-args='…'")
+    p.add_argument("--current", action="store_true", help="make this the current setup (the first is current by default)")
+    p.add_argument("--cost", choices=("reported", "tokens", "flat"), help="cost source (default: reported)")
+    p.add_argument("--input-price", type=float, help="estimated USD per million input tokens")
+    p.add_argument("--cached-input-price", type=float, help="estimated USD per million cached input tokens")
+    p.add_argument("--output-price", type=float, help="estimated USD per million output tokens")
+    p.add_argument("--flat-price", type=float, help="estimated USD per attempt")
+
+    p = sub.add_parser("compare", help="run your tasks and compare success, cost, time and failures")
+    p.add_argument("--snapshot", type=_snapshot_name, required=True, help="a name for this comparison")
+    p.add_argument("--trials", type=_positive_int, default=1, help="attempts per task and setup (default: 1 for a quick pilot)")
+    p.add_argument("--config", action="append", help="include this setup (repeatable; include the current setup)")
+    p.add_argument("--task", action="append", help="include this task (repeatable)")
+    p.add_argument("--agent-timeout", type=_positive_int, default=runner_mod.DEFAULT_AGENT_TIMEOUT)
+    p.add_argument("--report-only", action="store_true", help="read saved results without running agents or tests")
+    p.set_defaults(strict=False, skip_smoke=False)
 
     p = sub.add_parser("doctor", help="check tasks, configs, and required local tools")
     p.add_argument("--config", action="append", help="check only this config id (repeatable)")
@@ -422,6 +485,10 @@ def main(argv: list[str] | None = None) -> int:
 
     args = parser.parse_args(argv)
     handlers = {
+        "init": onboarding.init_pack,
+        "add": onboarding.add_task,
+        "setup": onboarding.add_setup,
+        "compare": cmd_compare,
         "doctor": cmd_doctor,
         "audit": cmd_audit,
         "validate": cmd_validate,
@@ -451,8 +518,11 @@ def main(argv: list[str] | None = None) -> int:
         runner_mod.RunError,
         task_mod.TaskError,
         workspace_mod.GitError,
+        onboarding.SetupError,
+        OSError,
+        EOFError,
     ) as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
+        print(f"ERROR: {str(exc) or 'input ended; rerun the command to continue'}", file=sys.stderr)
         return 1
 
 
