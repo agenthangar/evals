@@ -134,6 +134,29 @@ separate agent environment with only approved inputs. See [security](SECURITY.md
 The existing advanced commands remain available: `mine`, `validate`, `audit`,
 `smoke`, `doctor`, `run`, `report` and `pilot-review`.
 
+### Transcript export and preference tasks
+
+`bench mine transcripts <dir> --source claude|codex --output candidates.jsonl`
+writes one JSON record per cleaned session for local, manual review. It may hold
+private prompts, responses and paths: keep it in a private workspace and see
+[SECURITY.md](SECURITY.md). It lists candidates; it does not create reproducible
+tasks.
+
+For subjective work, a task can use `grader.type: preference` (an artifact plus a
+private rubric; see the [authoring guide](tasks/README.md)) instead of held-out
+tests. Preference results are blinded, manual A/B judgments and are never counted
+as correctness passes:
+
+```sh
+bench preference prepare --snapshot <name> --config <a> --config <b>
+# Fill in each preference-review/*/trial-*/judgment.yaml
+bench preference report --snapshot <name>
+```
+
+This writes `preference-report.md` and `preference-results.yaml`; `report` refuses
+preference-only snapshots and `routing.yaml` is never changed. A zero-cost example
+lives in `examples/preference-tasks`.
+
 - [Task authoring](tasks/README.md): custom checks, Docker grading and negative controls.
 - [Evaluation methodology](docs/METHODOLOGY.md): grader review, repeated trials and uncertainty.
 - [Incident discovery](docs/DISCOVERY.md): finding deeper work in Git and transcripts.

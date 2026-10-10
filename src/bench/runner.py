@@ -79,9 +79,20 @@ class TrialResult:
     artifact_passed: bool | None = None
     artifact_grade_reason: str | None = None
     cost_source: str = "unknown"
+    # New preference fields stay last so positional construction keeps working.
+    grader_type: str = "tests"
+    artifact_file: str | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TrialResult":
+        """Load current results and objective results from older snapshots."""
+        normalized = dict(data)
+        normalized.setdefault("grader_type", "tests")
+        normalized.setdefault("artifact_file", None)
+        return cls(**normalized)
 
 
 def run_trial(
@@ -106,17 +117,29 @@ def run_trial(
             f"duration={agent.duration_seconds:.1f}s\n"
             f"--- stdout ---\n{agent.stdout}\n--- stderr ---\n{agent.stderr}\n"
         )
-        graded = grade.grade_diff(task, diff)
-    (out_dir / "tests.log").write_text(graded.output)
+        if task.grader_type == "preference":
+            graded = grade.capture_preference_artifact(task, workdir)
+        else:
+            graded = grade.grade_diff(task, diff)
+    artifact_file = None
+    if task.grader_type == "preference":
+        (out_dir / "grade.log").write_text(f"{graded.reason}: {task.preference_artifact}\n")
+        if graded.passed:
+            artifact_file = "artifact.md"
+            (out_dir / artifact_file).write_text(graded.output)
+    else:
+        (out_dir / "tests.log").write_text(graded.output)
 
     result = TrialResult(
         task_id=task.id,
         category=task.category,
         config_id=config.id,
         trial=trial,
-        passed=graded.passed and agent.exit_code == 0 and not agent.timed_out,
-        grade_reason=("agent_timed_out" if agent.timed_out else
-                      "agent_exited_nonzero" if agent.exit_code != 0 else graded.reason),
+        passed=(graded.passed and agent.exit_code == 0 and not agent.timed_out)
+        if task.grader_type == "tests" else None,
+        grade_reason=graded.reason if task.grader_type == "preference" else (
+            "agent_timed_out" if agent.timed_out else
+            "agent_exited_nonzero" if agent.exit_code != 0 else graded.reason),
         cost_usd=config.cost.cost_usd(
             agent.cost_usd,
             agent.input_tokens,
@@ -131,6 +154,8 @@ def run_trial(
         artifact_passed=graded.passed,
         artifact_grade_reason=graded.reason,
         cost_source=config.cost.source(agent.cost_usd, agent.input_tokens, agent.output_tokens),
+        grader_type=task.grader_type,
+        artifact_file=artifact_file,
     )
     pending = out_dir / "result.json.tmp"
     pending.write_text(json.dumps(result.to_dict(), indent=2) + "\n")
@@ -236,12 +261,16 @@ def run_matrix(
             data = json.loads(existing.read_text())
             if (data.get("task_id"), data.get("config_id"), data.get("trial")) != (task.id, config.id, trial):
                 raise RunError(f"cached result does not match its matrix cell: {existing}")
-            results.append(TrialResult(**data))
+            results.append(TrialResult.from_dict(data))
             log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: cached")
             continue
         result = run_trial(task, config, trial, out_dir, agent_timeout)
         results.append(result)
-        status = "PASS" if result.passed else f"FAIL ({result.grade_reason})"
+        if result.grader_type == "preference":
+            status = ("READY (preference review)" if result.grade_reason == "preference_ready"
+                      else f"FAIL ({result.grade_reason})")
+        else:
+            status = "PASS" if result.passed else f"FAIL ({result.grade_reason})"
         cost = f"${result.cost_usd:.2f}" if result.cost_usd is not None else "cost n/a"
         log(f"[{done}/{total}] {task.id} / {config.id} #{trial}: {status}, {cost}")
     log(f"snapshot complete: {done} trials in {time.monotonic() - started:.0f}s")
@@ -252,7 +281,7 @@ def load_results(snapshot_dir: Path) -> list[TrialResult]:
     """Load all persisted trial results for a snapshot."""
     results = []
     for path in sorted(Path(snapshot_dir).glob("*/*/trial-*/result.json")):
-        results.append(TrialResult(**json.loads(path.read_text())))
+        results.append(TrialResult.from_dict(json.loads(path.read_text())))
     manifest_path = Path(snapshot_dir) / "manifest.json"
     if manifest_path.exists():
         manifest = json.loads(manifest_path.read_text())

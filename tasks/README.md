@@ -116,6 +116,54 @@ were retired, and keep historical results tied to the old task fingerprint.
 For UI, writing, research and release workflows, tests alone may miss the intended
 outcome. Use a concrete artifact and an anchored human rubric, or add real UI/
 sandbox integration checks. If the critical outcome cannot be graded reliably,
-keep it in a separate manual evaluation lane. This CLI does not implement an
-LLM judge or blind human-review workflow; do not disguise keyword checks as one.
-See [methodology](../docs/METHODOLOGY.md) for a practical review protocol.
+keep it in a separate manual evaluation lane. This CLI has no LLM judge; for a
+blinded human-review lane use a preference task (below), and do not disguise
+keyword checks as one. See [methodology](../docs/METHODOLOGY.md) for a practical
+review protocol.
+
+## Preference tasks
+
+Use preference grading when the output is subjective and cannot honestly be
+reduced to a held-out test. Replace `tests` and `solution` with:
+
+```yaml
+grader:
+  type: preference
+  artifact: answer.md
+  rubric_file: rubric.md
+environment:
+  runner: local
+```
+
+The prompt tells the agent to create `answer.md`; `rubric.md` is not shown to
+the contender. `grader.artifact` must be a safe relative path: absolute paths,
+parent traversal, direct symlink artifacts, paths that resolve outside the
+checkout, directories, missing files, and empty files are rejected. The smoke
+gate passes only when the artifact is absent at the base commit; an empty or
+unsafe baseline artifact is a task error rather than a successful smoke check.
+
+A successful trial stores the captured output as `artifact.md`, writes the
+capture status to `grade.log`, and records `grader_type: preference`,
+`passed: null`, and `grade_reason: preference_ready` in `result.json`. Missing,
+empty, or unsafe artifacts remain failed captures and are not eligible for a
+review pair.
+
+After a run, `bench preference prepare` creates blinded A/B packets for exactly
+two configurations. The reviewer records `A`, `B`, `tie`, or `neither` plus a
+rationale in `judgment.yaml`; `bench preference report` resolves the hidden
+labels and aggregates manual judgments. Reported costs include only trials in
+the prepared review pairs.
+
+The hidden `.keys` directory maps A/B labels to configuration IDs and stores
+hashes of the prompt, rubric, and candidates. Do not inspect it before judging.
+A completed judgment cannot be reused when any hashed material changes. To
+review changed material, reset `winner` to `null`, clear the rationale, rerun
+`prepare`, and judge the refreshed packet.
+
+Preference results measure taste among produced artifacts. They are reported
+separately and never count as correctness passes.
+
+See the balanced, no-cost example under
+[`examples/preference-tasks`](../examples/preference-tasks), with its neutral
+script configurations in
+[`examples/configs/preference-script.yaml`](../examples/configs/preference-script.yaml).
