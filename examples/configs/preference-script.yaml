@@ -1,0 +1,18 @@
+# The shared config schema requires an incumbent; preference reports do not use
+# it to rank or route the candidates.
+incumbent: brief-style-one
+
+configs:
+  - id: brief-style-one
+    harness: script
+    patch_file: examples/preference-candidates/brief-style-one.patch
+    cost:
+      mode: flat_per_run
+      flat_usd: 0.0
+
+  - id: brief-style-two
+    harness: script
+    patch_file: examples/preference-candidates/brief-style-two.patch
+    cost:
+      mode: flat_per_run
+      flat_usd: 0.0

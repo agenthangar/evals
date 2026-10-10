@@ -8,6 +8,9 @@ runs/
 dist/
 build/
 
+# Cleaned transcript candidate exports contain private conversation data.
+*-candidates.jsonl
+
 # Local product/model choices and pricing assumptions are snapshot-specific.
 configs/products.yaml
 

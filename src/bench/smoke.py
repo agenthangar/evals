@@ -1,7 +1,9 @@
 """Calibrate graders against good, empty and plausible wrong solutions."""
 from __future__ import annotations
 import dataclasses
-from bench import grade
+import tempfile
+from pathlib import Path
+from bench import grade, workspace
 from bench.task import Task
 
 @dataclasses.dataclass
@@ -17,6 +19,20 @@ class SmokeResult:
 def smoke_task(task: Task, repeats: int = 1) -> SmokeResult:
     if repeats < 1:
         raise ValueError("repeats must be positive")
+    if task.grader_type == "preference":
+        with tempfile.TemporaryDirectory(prefix="bench-smoke-preference-") as tmp:
+            workdir = workspace.checkout(task.repo_url, task.base_commit, Path(tmp) / "repo")
+            baseline = grade.capture_preference_artifact(task, workdir)
+        ok = baseline.reason == "artifact_missing"
+        if ok:
+            detail = ("preference artifact is absent at baseline; manual pairwise review "
+                      "is required after the run")
+        elif baseline.reason == "preference_ready":
+            detail = "preference artifact already exists at the base commit"
+        else:
+            detail = (f"preference artifact baseline is invalid ({baseline.reason}): "
+                      f"{baseline.output}")
+        return SmokeResult(task.id, ok, True, ok, detail, [])
     details, evidence = [], []
     solution_passed = empty_failed = True
     for repeat in range(1, repeats + 1):

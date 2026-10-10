@@ -1,4 +1,9 @@
-"""Portable task contracts; evaluation evidence stays in the task pack."""
+"""Portable task contracts; evaluation evidence stays in the task pack.
+
+A test-graded task holds held-out tests and a known-good solution. A preference
+task instead declares ``grader.type: preference`` plus a named artifact and a
+private rubric; its artifact is captured for blinded manual A/B review and is
+never treated as an objective pass."""
 from __future__ import annotations
 
 import dataclasses
@@ -47,9 +52,14 @@ class Task:
     limitations: list[str] = dataclasses.field(default_factory=list)
     protected_paths: list[str] = dataclasses.field(default_factory=list)
     must_pass: bool = False
+    grader_type: str = "tests"
+    preference_artifact: str | None = None
+    preference_rubric: str | None = None
 
     @property
     def grading_checks(self) -> list[Check]:
+        if self.grader_type == "preference":
+            return []
         return self.checks or [Check("tests", self.test_command, self.test_timeout)]
 
     @classmethod
@@ -104,9 +114,14 @@ class Task:
         if task_id != task_dir.name:
             fail(f"id {task_id!r} does not match directory name {task_dir.name!r}")
         repo = mapping(required(meta, "repo"), "repo")
-        tests = mapping(required(meta, "tests"), "tests")
+        grader = mapping(meta.get("grader") or {"type": "tests"}, "grader")
+        grader_type = grader.get("type", "tests")
+        if grader_type not in ("tests", "preference"):
+            fail("grader.type must be 'tests' or 'preference'")
+        preference = grader_type == "preference"
+        tests = {} if preference else mapping(required(meta, "tests"), "tests")
         env = mapping(meta.get("environment", {}), "environment")
-        solution = mapping(required(meta, "solution"), "solution")
+        solution = {} if preference else mapping(required(meta, "solution"), "solution")
         evaluation = mapping(meta.get("evaluation", {}), "evaluation")
         runner = env.get("runner", "docker")
         if runner not in ("docker", "local"):
@@ -128,8 +143,8 @@ class Task:
             fail("duplicate check ids")
         if checks and "command" in tests:
             fail("use tests.command or tests.checks, not both")
-        command = "" if checks else string(required(tests, "command", "tests."), "tests.command")
-        check_ids = {c.id for c in checks} if checks else {"tests"}
+        command = "" if checks or preference else string(required(tests, "command", "tests."), "tests.command")
+        check_ids = {c.id for c in checks} if checks else (set() if preference else {"tests"})
         criteria = sequence(evaluation.get("criteria", []), "evaluation.criteria")
         for criterion in criteria:
             mapping(criterion, "criterion")
@@ -164,12 +179,23 @@ class Task:
         must_pass = meta.get("must_pass", False)
         if not isinstance(must_pass, bool):
             fail("must_pass must be true or false")
+        preference_artifact = preference_rubric = None
+        if preference:
+            preference_artifact = relative(
+                string(required(grader, "artifact", "grader."), "grader.artifact").replace("\\", "/"),
+                "grader.artifact")
+            preference_rubric = read_file(required(grader, "rubric_file", "grader."), "preference rubric")
+            if "TODO:" in preference_rubric:
+                fail("preference rubric still contains a TODO: marker")
+        tests_patch = "" if preference else read_file(required(tests, "patch_file", "tests."), "tests patch")
+        solution_patch = "" if preference else read_file(required(solution, "patch_file", "solution."), "solution patch")
         return cls(task_id, string(required(meta, "category"), "category"), url,
             string(required(repo, "base_commit", "repo."), "repo.base_commit"), prompt,
-            read_file(required(tests, "patch_file", "tests."), "tests patch"), command,
-            timeout, runner, image, read_file(required(solution, "patch_file", "solution."), "solution patch"),
+            tests_patch, command,
+            timeout, runner, image, solution_patch,
             task_dir, checks, controls, criteria,
-            mapping(meta.get("provenance", {}), "provenance"), limitations, protected, must_pass)
+            mapping(meta.get("provenance", {}), "provenance"), limitations, protected, must_pass,
+            grader_type, preference_artifact, preference_rubric)
 
 
 def load_all(tasks_dir: Path) -> list[Task]:
